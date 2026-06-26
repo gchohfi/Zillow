@@ -72,11 +72,30 @@ python -m src.main
 python -m src.main --mock --dry-run
 ```
 
-Para rodar de tempos em tempos, use um agendador (cron). Ex.: a cada hora:
+### Saída em planilha (CSV)
+
+Toda oportunidade **viável** é acrescentada em `opportunities.csv` (caminho em
+`config.yaml → output.csv_path`), com colunas de preço, ARV, lucro, margem,
+distância e link. Abra direto no Excel/Google Sheets.
+
+### Agendamento automático (cron)
+
+Já existe um `run.sh` pronto. Para rodar **de hora em hora**, rode `crontab -e`
+e cole (ajuste o caminho):
 
 ```
-0 * * * * cd /caminho/orlando-land-detector && .venv/bin/python -m src.main >> run.log 2>&1
+0 * * * * /caminho/orlando-land-detector/run.sh >> /caminho/orlando-land-detector/run.log 2>&1
 ```
+
+A cada execução ele busca o que é novo, calcula viabilidade, grava no CSV e
+dispara os alertas. Como ele lembra o que já viu (SQLite), você só é avisado de
+oportunidades **inéditas**.
+
+### Cobertura dos 150 km (busca multi-CEP)
+
+A API limita o raio a ~50 milhas por CEP, então o sistema consulta **vários CEPs**
+ao redor de Orlando (lista em `config.yaml → datasource.rapidapi.postal_codes`),
+junta os resultados, remove duplicados, e o geofiltro de 150 km faz o corte final.
 
 ## Testes
 

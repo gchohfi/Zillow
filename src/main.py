@@ -52,6 +52,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     print(f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
           f"não viáveis: {n_not_viable} | viáveis NOVOS: {len(viable_new)}")
 
+    # Grava as oportunidades viáveis na planilha CSV.
+    csv_path = cfg.raw.get("output", {}).get("csv_path")
+    if csv_path and viable_new:
+        from .reporter import append_results
+        append_results(viable_new, csv_path)
+
     from .notifier import notify
     notify(viable_new, dry_run=dry_run)
 

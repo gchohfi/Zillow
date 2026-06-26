@@ -5,4 +5,5 @@ __pycache__/
 *.db
 *.sqlite
 run.log
+opportunities.csv
 .pytest_cache/

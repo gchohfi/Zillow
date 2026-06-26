@@ -34,6 +34,10 @@ rules:
 storage:
   db_path: seen_listings.db
 
+# ---- Saída em planilha ----
+output:
+  csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
+
 # ============================================================================
 #  FONTE DE DADOS — aponte para a API que você assinar no RapidAPI.
 #  Cada API tem nomes de campo um pouco diferentes; aqui você mapeia tudo
@@ -62,12 +66,27 @@ datasource:
     # 150) faz o corte preciso. Para cobrir os 150 km inteiros, dá para buscar
     # em vários CEPs centrais e juntar — me peça que eu adiciono.
     params:
-      postal_code: "32801"        # Orlando (centro). Troque/expanda conforme precisar.
+      postal_code: "32801"        # CEP padrão (usado se postal_codes abaixo ficar vazio)
       radius: "50"                # milhas (limite típico da API)
       prop_type: land             # só terrenos
       sort: newest                # mais recentes primeiro
       offset: "0"
       limit: "50"
+
+    # ---- Busca multi-CEP (cobre os ~150 km ao redor de Orlando) ----
+    # O sistema consulta CADA CEP (raio 50 mi) e junta os resultados, removendo
+    # duplicados. O geofiltro (search.radius_km = 150) faz o corte fino no fim.
+    postal_codes:
+      - "32801"   # Orlando (centro)
+      - "34711"   # Clermont (oeste)
+      - "34741"   # Kissimmee (sul)
+      - "32771"   # Sanford (norte)
+      - "34748"   # Leesburg (noroeste)
+      - "32114"   # Daytona Beach (nordeste/litoral)
+      - "32935"   # Melbourne (leste/litoral)
+      - "33801"   # Lakeland (sudoeste)
+      - "34470"   # Ocala (norte)
+      - "33880"   # Winter Haven (sul/sudoeste)
 
     # Onde está a LISTA de resultados no JSON da resposta (tenta na ordem).
     # Inclui caminhos das versões v2 e v3 da API para robustez.

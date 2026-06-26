@@ -118,16 +118,34 @@ class RealtorRapidAPISource(DataSource):
             "radius_km": round(radius_km, 1),
             "radius_miles": round(radius_km / 1.60934, 1),
         }
-        raw_items = self._request(ctx)
         fields = self.cfg.get("fields", {})
-        listings = [self._parse(item, fields) for item in raw_items]
-        return [l for l in listings if l.id]   # descarta itens sem id
 
-    def _request(self, ctx: dict[str, Any]) -> list[dict[str, Any]]:
+        # Busca em cada CEP (multi-CEP cobre os ~150 km); junta e deduplica.
+        params_base = self.cfg.get("params", {})
+        postal_codes = self.cfg.get("postal_codes") or [params_base.get("postal_code")]
+
+        by_id: dict[str, Listing] = {}
+        for zip_code in [z for z in postal_codes if z]:
+            params = dict(params_base)
+            params["postal_code"] = zip_code
+            try:
+                raw_items = self._request(ctx, params)
+            except requests.RequestException as exc:
+                print(f"  [aviso] falha ao buscar CEP {zip_code}: {exc}")
+                continue
+            for item in raw_items:
+                listing = self._parse(item, fields)
+                if listing.id and listing.id not in by_id:
+                    by_id[listing.id] = listing
+            print(f"  CEP {zip_code}: {len(raw_items)} listagem(ns)")
+
+        return list(by_id.values())
+
+    def _request(self, ctx: dict[str, Any], params_in: dict[str, Any]) -> list[dict[str, Any]]:
         method = (self.cfg.get("method") or "GET").upper()
         url = self.cfg.get("base_url", f"https://{self.host}").rstrip("/") + \
             self.cfg.get("search_path", "")
-        params = _fill(self.cfg.get("params", {}), ctx)
+        params = _fill(params_in, ctx)
         headers = {"X-RapidAPI-Key": self.key, "X-RapidAPI-Host": self.host}
 
         if method == "POST":
