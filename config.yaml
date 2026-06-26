@@ -1,0 +1,153 @@
+# ============================================================================
+#  A SUA FÓRMULA — edite estes números conforme o seu negócio e a sua região.
+# ============================================================================
+
+# ---- Área de busca ----
+search:
+  center_lat: 28.5384          # Orlando, FL
+  center_lng: -81.3789
+  radius_km: 150               # raio de busca
+  property_types:              # tipos de listagem que interessam
+    - land
+    - lots-land
+
+# ---- Premissas de construção (spec build) ----
+build:
+  living_area_sqft: 2000       # tamanho da casa que você pretende construir
+  construction_cost_per_sqft: 165   # custo de construção por sqft (USD) na região
+  resale_price_per_sqft: 330        # valor de revenda por sqft da casa pronta (ARV)
+  # OBS: na Fase 2/3, resale_price_per_sqft pode ser substituído por comps reais.
+
+# ---- Custos adicionais (frações) ----
+costs:
+  soft_cost_pct: 0.10          # projeto, licenças, taxas (% sobre o custo de construção)
+  carrying_cost_pct: 0.06      # juros + IPTU + seguro durante a obra (% sobre terreno+obra)
+  selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
+
+# ---- Regras de corte (o que é "viável") ----
+rules:
+  target_margin: 0.18          # margem líquida mínima (lucro / ARV)
+  max_land_to_arv_pct: 0.20    # terreno não pode passar de 20% do ARV
+  require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
+  min_lot_size_sqft: 5000      # lote mínimo em sqft (0 ou nulo = sem mínimo)
+
+# ---- Resumo diário por e-mail ----
+summary:
+  period_hours: 24             # janela do resumo (últimas N horas do CSV)
+
+# ============================================================================
+#  SEGMENTOS / PADRÕES — cada oportunidade é classificada pela faixa de preço,
+#  e cada segmento pode ter a SUA PRÓPRIA fórmula (build/costs/rules).
+#  A listagem cai no PRIMEIRO segmento cujo 'max_price' >= preço do imóvel.
+#  Sem override, o segmento usa os padrões definidos lá em cima.
+# ============================================================================
+tiers:
+  - name: baixo_padrao
+    label: "Baixo padrão"
+    max_price: 50000           # terrenos até US$ 50.000
+    # Ex.: casa menor e revenda mais modesta neste segmento:
+    # build:
+    #   living_area_sqft: 1600
+    #   resale_price_per_sqft: 280
+
+  - name: medio_padrao
+    label: "Médio padrão"
+    max_price: 300000          # terrenos ou casas até US$ 300.000
+    # build:
+    #   living_area_sqft: 2400
+    #   resale_price_per_sqft: 340
+    # rules:
+    #   target_margin: 0.16
+
+  - name: alto_padrao
+    label: "Alto padrão"
+    max_price: null            # sem teto (acima de US$ 300.000)
+    # ALTO PADRÃO tem muito mais variáveis — preencha conforme for definindo:
+    # build:
+    #   living_area_sqft: 4000
+    #   construction_cost_per_sqft: 250
+    #   resale_price_per_sqft: 520
+    # costs:
+    #   selling_cost_pct: 0.08
+    # rules:
+    #   target_margin: 0.22
+    #   min_lot_size_sqft: 12000
+
+# ---- Banco de dados (memória do que já foi visto) ----
+storage:
+  db_path: seen_listings.db
+
+# ---- Saída em planilha ----
+output:
+  csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
+
+# ============================================================================
+#  FONTE DE DADOS — aponte para a API que você assinar no RapidAPI.
+#  Cada API tem nomes de campo um pouco diferentes; aqui você mapeia tudo
+#  SEM precisar mexer no código. Use --mock para testar sem chave nenhuma.
+# ============================================================================
+datasource:
+  provider: realtor_rapidapi      # "realtor_rapidapi" ou "mock"
+
+  rapidapi:
+    # ----------------------------------------------------------------------
+    #  Configurado para a API "Realty in US" (espelho da Realtor.com).
+    #  Assine em: https://rapidapi.com/apidojo/api/realty-in-us
+    #  Cole a chave em RAPIDAPI_KEY no .env.
+    # ----------------------------------------------------------------------
+    host: realty-in-us.p.rapidapi.com
+    base_url: https://realty-in-us.p.rapidapi.com
+    method: GET
+    search_path: /properties/v2/list-for-sale
+
+    # Parâmetros da query. {lat} {lng} {radius_km} {radius_miles} são
+    # preenchidos em tempo de execução.
+    #
+    # IMPORTANTE sobre o RAIO: esta API costuma limitar 'radius' a ~50 milhas
+    # (~80 km) a partir de um postal_code. Por isso usamos um CEP central de
+    # Orlando + raio 50, e o GEOFILTRO do próprio sistema (search.radius_km =
+    # 150) faz o corte preciso. Para cobrir os 150 km inteiros, dá para buscar
+    # em vários CEPs centrais e juntar — me peça que eu adiciono.
+    params:
+      postal_code: "32801"        # CEP padrão (usado se postal_codes abaixo ficar vazio)
+      radius: "50"                # milhas (limite típico da API)
+      prop_type: land             # só terrenos
+      sort: newest                # mais recentes primeiro
+      offset: "0"
+      limit: "50"
+
+    # ---- Busca multi-CEP (cobre os ~150 km ao redor de Orlando) ----
+    # O sistema consulta CADA CEP (raio 50 mi) e junta os resultados, removendo
+    # duplicados. O geofiltro (search.radius_km = 150) faz o corte fino no fim.
+    postal_codes:
+      - "32801"   # Orlando (centro)
+      - "34711"   # Clermont (oeste)
+      - "34741"   # Kissimmee (sul)
+      - "32771"   # Sanford (norte)
+      - "34748"   # Leesburg (noroeste)
+      - "32114"   # Daytona Beach (nordeste/litoral)
+      - "32935"   # Melbourne (leste/litoral)
+      - "33801"   # Lakeland (sudoeste)
+      - "34470"   # Ocala (norte)
+      - "33880"   # Winter Haven (sul/sudoeste)
+
+    # Onde está a LISTA de resultados no JSON da resposta (tenta na ordem).
+    # Inclui caminhos das versões v2 e v3 da API para robustez.
+    results_paths:
+      - properties                 # Realty in US v2
+      - data.home_search.results   # schema v3 / Realtor
+      - data.results
+      - results
+      - data
+
+    # Mapeamento campo_da_listagem -> caminho(s) no item (tenta na ordem).
+    fields:
+      id:            [property_id, listing_id, id]
+      price:         [price, list_price]
+      lat:           [address.lat, location.address.coordinate.lat, coordinate.lat, latitude, lat]
+      lng:           [address.lon, location.address.coordinate.lon, coordinate.lng, longitude, lng, lon]
+      address:       [address.line, location.address.line, address, full_address]
+      lot_size_sqft: [lot_size.size, lot_size.sqft, lot_sqft, lotSize]
+      zoning:        [zoning, zoning_description]
+      listing_date:  [list_date, listing_date, listed_date]
+      url:           [rdc_web_url, href, permalink, url]
