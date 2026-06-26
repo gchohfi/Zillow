@@ -160,18 +160,21 @@ class RealtorRapidAPISource(DataSource):
         )
 
 
-def _fill(params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-    """Substitui placeholders {lat} {lng} {radius_km} {radius_miles} nos valores."""
-    out: dict[str, Any] = {}
-    for key, value in params.items():
-        if isinstance(value, str) and "{" in value:
-            try:
-                out[key] = value.format(**ctx)
-            except (KeyError, IndexError):
-                out[key] = value
-        else:
-            out[key] = value
-    return out
+def _fill(value: Any, ctx: dict[str, Any]) -> Any:
+    """Substitui placeholders {lat} {lng} {radius_km} {radius_miles} recursivamente.
+
+    Suporta dicts e listas aninhados (corpos JSON de APIs POST).
+    """
+    if isinstance(value, dict):
+        return {k: _fill(v, ctx) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_fill(v, ctx) for v in value]
+    if isinstance(value, str) and "{" in value:
+        try:
+            return value.format(**ctx)
+        except (KeyError, IndexError):
+            return value
+    return value
 
 
 # --------------------------------------------------------------------------- #
