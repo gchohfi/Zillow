@@ -6,7 +6,7 @@
 search:
   center_lat: 28.5384          # Orlando, FL
   center_lng: -81.3789
-  radius_km: 150               # raio de busca
+  radius_km: 180               # raio de busca
   property_types:              # tipos de listagem que interessam
     - land
     - lots-land
@@ -27,7 +27,7 @@ costs:
 # ---- Regras de corte (o que é "viável") ----
 rules:
   target_margin: 0.18          # margem líquida mínima (lucro / ARV)
-  max_land_to_arv_pct: 0.20    # terreno não pode passar de 20% do ARV
+  max_land_to_total_investment_pct: 0.27  # terreno não pode passar de 27% do investimento total
   require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
   min_lot_size_sqft: 5000      # lote mínimo em sqft (0 ou nulo = sem mínimo)
 
@@ -106,7 +106,7 @@ datasource:
     # IMPORTANTE sobre o RAIO: esta API costuma limitar 'radius' a ~50 milhas
     # (~80 km) a partir de um postal_code. Por isso usamos um CEP central de
     # Orlando + raio 50, e o GEOFILTRO do próprio sistema (search.radius_km =
-    # 150) faz o corte preciso. Para cobrir os 150 km inteiros, dá para buscar
+    # 180) faz o corte preciso. Para cobrir os 180 km inteiros, dá para buscar
     # em vários CEPs centrais e juntar — me peça que eu adiciono.
     params:
       postal_code: "32801"        # CEP padrão (usado se postal_codes abaixo ficar vazio)
@@ -116,9 +116,9 @@ datasource:
       offset: "0"
       limit: "50"
 
-    # ---- Busca multi-CEP (cobre os ~150 km ao redor de Orlando) ----
+    # ---- Busca multi-CEP (cobre os ~180 km ao redor de Orlando) ----
     # O sistema consulta CADA CEP (raio 50 mi) e junta os resultados, removendo
-    # duplicados. O geofiltro (search.radius_km = 150) faz o corte fino no fim.
+    # duplicados. O geofiltro (search.radius_km = 180) faz o corte fino no fim.
     postal_codes:
       - "32801"   # Orlando (centro)
       - "34711"   # Clermont (oeste)
