@@ -36,20 +36,21 @@ def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
 
     body = "\n\n".join(_format_result(r) for r in results)
     header = f"{len(results)} oportunidade(s) viável(is) de terreno perto de Orlando:\n"
-    message = header + "\n" + body
+    subject = f"[Orlando Land] {len(results)} oportunidade(s) viável(is)"
+    send_message(subject, header + "\n" + body, dry_run=dry_run)
 
-    # Console — sempre
-    print(message)
 
+def send_message(subject: str, body: str, dry_run: bool = False) -> None:
+    """Mostra no console e dispara para os canais configurados (e-mail/Telegram)."""
+    print(body)
     if dry_run:
-        print("\n[dry-run] alertas externos não foram enviados.")
+        print("\n[dry-run] envios externos não foram realizados.")
         return
+    _maybe_send_email(subject, body)
+    _maybe_send_telegram(f"{subject}\n\n{body}")
 
-    _maybe_send_email(message, count=len(results))
-    _maybe_send_telegram(message)
 
-
-def _maybe_send_email(message: str, count: int) -> None:
+def _maybe_send_email(subject: str, message: str) -> None:
     host = env("SMTP_HOST")
     to_addr = env("ALERT_EMAIL_TO")
     if not host or not to_addr:
@@ -59,7 +60,7 @@ def _maybe_send_email(message: str, count: int) -> None:
     port = int(env("SMTP_PORT", "587") or 587)
 
     msg = MIMEText(message, _charset="utf-8")
-    msg["Subject"] = f"[Orlando Land] {count} oportunidade(s) viável(is)"
+    msg["Subject"] = subject
     msg["From"] = user or "orlando-land-detector"
     msg["To"] = to_addr
     try:

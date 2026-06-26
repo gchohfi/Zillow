@@ -29,6 +29,11 @@ rules:
   target_margin: 0.18          # margem líquida mínima (lucro / ARV)
   max_land_to_arv_pct: 0.20    # terreno não pode passar de 20% do ARV
   require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
+  min_lot_size_sqft: 5000      # lote mínimo em sqft (0 ou nulo = sem mínimo)
+
+# ---- Resumo diário por e-mail ----
+summary:
+  period_hours: 24             # janela do resumo (últimas N horas do CSV)
 
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:

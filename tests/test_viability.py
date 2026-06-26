@@ -53,3 +53,14 @@ def test_commercial_zoning_rejected():
     lot = Listing(id="c", price=95_000, lat=28.41, lng=-81.50, zoning="commercial")
     r = evaluate(lot, _cfg())
     assert not r.is_viable
+
+
+def test_small_lot_rejected():
+    cfg = _cfg()
+    cfg.raw["rules"]["min_lot_size_sqft"] = 5000
+    small = Listing(id="d", price=95_000, lat=28.41, lng=-81.50,
+                    zoning="residential", lot_size_sqft=3000)
+    assert not evaluate(small, cfg).is_viable
+    big = Listing(id="e", price=95_000, lat=28.41, lng=-81.50,
+                  zoning="residential", lot_size_sqft=8000)
+    assert evaluate(big, cfg).is_viable

@@ -91,6 +91,27 @@ A cada execução ele busca o que é novo, calcula viabilidade, grava no CSV e
 dispara os alertas. Como ele lembra o que já viu (SQLite), você só é avisado de
 oportunidades **inéditas**.
 
+### Resumo diário por e-mail
+
+Além dos alertas de cada rodada, dá para receber **um resumo consolidado 1x ao dia**
+(janela em `config.yaml → summary.period_hours`). Ele lê o `opportunities.csv` e
+manda tudo junto, ordenado pela maior margem:
+
+```bash
+python -m src.summary            # envia o resumo
+python -m src.summary --dry-run  # só mostra no console
+```
+
+No cron, por exemplo todo dia às 8h:
+```
+0 8 * * * cd /caminho/orlando-land-detector && .venv/bin/python -m src.summary >> run.log 2>&1
+```
+
+### Filtro de tamanho mínimo de lote
+
+`config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em
+sqft). Use `0` para desligar. Listagens sem o dado de lote passam com um aviso.
+
 ### Cobertura dos 150 km (busca multi-CEP)
 
 A API limita o raio a ~50 milhas por CEP, então o sistema consulta **vários CEPs**

@@ -59,6 +59,16 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         is_viable = False
         reasons.append(f"✗ terreno {land_to_arv:.1%} do ARV > {max_land:.0%}")
 
+    min_lot = float(rules.get("min_lot_size_sqft") or 0)
+    if min_lot > 0:
+        if listing.lot_size_sqft is None:
+            reasons.append("⚠ tamanho do lote desconhecido (verifique manualmente)")
+        elif listing.lot_size_sqft >= min_lot:
+            reasons.append(f"✓ lote {listing.lot_size_sqft:,.0f} sqft ≥ {min_lot:,.0f}")
+        else:
+            is_viable = False
+            reasons.append(f"✗ lote {listing.lot_size_sqft:,.0f} sqft < mínimo {min_lot:,.0f}")
+
     if rules.get("require_residential_zoning"):
         residential = _looks_residential(listing.zoning)
         if residential is False:
