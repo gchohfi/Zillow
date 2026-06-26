@@ -41,4 +41,5 @@ class ViabilityResult:
     margin: float
     land_to_arv: float
     is_viable: bool
+    tier: str = ""                                      # segmento: baixo/médio/alto padrão
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou

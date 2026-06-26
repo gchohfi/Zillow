@@ -35,6 +35,44 @@ rules:
 summary:
   period_hours: 24             # janela do resumo (últimas N horas do CSV)
 
+# ============================================================================
+#  SEGMENTOS / PADRÕES — cada oportunidade é classificada pela faixa de preço,
+#  e cada segmento pode ter a SUA PRÓPRIA fórmula (build/costs/rules).
+#  A listagem cai no PRIMEIRO segmento cujo 'max_price' >= preço do imóvel.
+#  Sem override, o segmento usa os padrões definidos lá em cima.
+# ============================================================================
+tiers:
+  - name: baixo_padrao
+    label: "Baixo padrão"
+    max_price: 50000           # terrenos até US$ 50.000
+    # Ex.: casa menor e revenda mais modesta neste segmento:
+    # build:
+    #   living_area_sqft: 1600
+    #   resale_price_per_sqft: 280
+
+  - name: medio_padrao
+    label: "Médio padrão"
+    max_price: 300000          # terrenos ou casas até US$ 300.000
+    # build:
+    #   living_area_sqft: 2400
+    #   resale_price_per_sqft: 340
+    # rules:
+    #   target_margin: 0.16
+
+  - name: alto_padrao
+    label: "Alto padrão"
+    max_price: null            # sem teto (acima de US$ 300.000)
+    # ALTO PADRÃO tem muito mais variáveis — preencha conforme for definindo:
+    # build:
+    #   living_area_sqft: 4000
+    #   construction_cost_per_sqft: 250
+    #   resale_price_per_sqft: 520
+    # costs:
+    #   selling_cost_pct: 0.08
+    # rules:
+    #   target_margin: 0.22
+    #   min_lot_size_sqft: 12000
+
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:
   db_path: seen_listings.db

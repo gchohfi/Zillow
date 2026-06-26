@@ -20,11 +20,31 @@ def _looks_residential(zoning: str | None) -> bool | None:
     return any(hint in z for hint in _RESIDENTIAL_HINTS)
 
 
+def _resolve_tier(price: float, cfg: Config) -> dict:
+    """Acha o segmento (padrão) cujo teto max_price >= preço. Vazio se não houver."""
+    for tier in cfg.raw.get("tiers", []):
+        ceiling = tier.get("max_price")
+        if ceiling is None or price <= float(ceiling):
+            return tier
+    return {}
+
+
+def _merged(base: dict, override: dict | None) -> dict:
+    """Mescla os parâmetros do segmento por cima dos padrões base."""
+    if not override:
+        return dict(base)
+    return {**base, **override}
+
+
 def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
-    """Aplica a fórmula de spec build a uma listagem e diz se é viável."""
-    build = cfg.build
-    costs = cfg.costs
-    rules = cfg.rules
+    """Aplica a fórmula de spec build (com parâmetros do segmento) e diz se é viável."""
+    tier = _resolve_tier(float(listing.price), cfg)
+    tier_label = tier.get("label") or tier.get("name") or ""
+
+    # Parâmetros base, sobrescritos pelos do segmento quando existirem.
+    build = _merged(cfg.build, tier.get("build"))
+    costs = _merged(cfg.costs, tier.get("costs"))
+    rules = _merged(cfg.rules, tier.get("rules"))
 
     living_area = float(build["living_area_sqft"])
 
@@ -44,6 +64,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     # --- Regras de corte ---
     reasons: list[str] = []
     is_viable = True
+    if tier_label:
+        reasons.append(f"• segmento: {tier_label}")
 
     target_margin = float(rules["target_margin"])
     if margin >= target_margin:
@@ -92,5 +114,6 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         margin=margin,
         land_to_arv=land_to_arv,
         is_viable=is_viable,
+        tier=tier_label,
         reasons=reasons,
     )

@@ -15,7 +15,7 @@ def _format_result(r: ViabilityResult) -> str:
     L = r.listing
     dist = f"{L.distance_km:.0f} km" if L.distance_km is not None else "?"
     lines = [
-        f"🏗️  OPORTUNIDADE VIÁVEL — {L.address or L.id}",
+        f"🏗️  OPORTUNIDADE VIÁVEL [{r.tier or 'n/d'}] — {L.address or L.id}",
         f"    Preço terreno : US$ {r.land_cost:,.0f}",
         f"    ARV (revenda) : US$ {r.arv:,.0f}",
         f"    Custo total   : US$ {r.total_cost:,.0f}",

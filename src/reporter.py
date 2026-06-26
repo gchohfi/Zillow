@@ -10,6 +10,7 @@ from .models import ViabilityResult
 
 _COLUMNS = [
     "found_at",
+    "tier",
     "id",
     "address",
     "distance_km",
@@ -40,6 +41,7 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
             L = r.listing
             writer.writerow({
                 "found_at": now,
+                "tier": r.tier,
                 "id": L.id,
                 "address": L.address,
                 "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",

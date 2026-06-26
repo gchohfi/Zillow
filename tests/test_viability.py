@@ -55,6 +55,27 @@ def test_commercial_zoning_rejected():
     assert not r.is_viable
 
 
+def test_tier_classification_and_override():
+    cfg = _cfg()
+    cfg.raw["tiers"] = [
+        {"name": "baixo_padrao", "label": "Baixo padrão", "max_price": 50000},
+        {"name": "medio_padrao", "label": "Médio padrão", "max_price": 300000,
+         "rules": {"target_margin": 0.50}},  # margem absurda -> reprova o de médio
+        {"name": "alto_padrao", "label": "Alto padrão", "max_price": None},
+    ]
+    baixo = Listing(id="t1", price=45_000, lat=28.41, lng=-81.50, zoning="residential")
+    rb = evaluate(baixo, cfg)
+    assert rb.tier == "Baixo padrão"
+
+    medio = Listing(id="t2", price=120_000, lat=28.41, lng=-81.50, zoning="residential")
+    rm = evaluate(medio, cfg)
+    assert rm.tier == "Médio padrão"
+    assert not rm.is_viable          # override de margem 50% derruba
+
+    alto = Listing(id="t3", price=600_000, lat=28.41, lng=-81.50, zoning="residential")
+    assert evaluate(alto, cfg).tier == "Alto padrão"
+
+
 def test_small_lot_rejected():
     cfg = _cfg()
     cfg.raw["rules"]["min_lot_size_sqft"] = 5000
