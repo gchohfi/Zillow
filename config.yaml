@@ -1,0 +1,35 @@
+# ============================================================================
+#  A SUA FÓRMULA — edite estes números conforme o seu negócio e a sua região.
+# ============================================================================
+
+# ---- Área de busca ----
+search:
+  center_lat: 28.5384          # Orlando, FL
+  center_lng: -81.3789
+  radius_km: 150               # raio de busca
+  property_types:              # tipos de listagem que interessam
+    - land
+    - lots-land
+
+# ---- Premissas de construção (spec build) ----
+build:
+  living_area_sqft: 2000       # tamanho da casa que você pretende construir
+  construction_cost_per_sqft: 165   # custo de construção por sqft (USD) na região
+  resale_price_per_sqft: 330        # valor de revenda por sqft da casa pronta (ARV)
+  # OBS: na Fase 2/3, resale_price_per_sqft pode ser substituído por comps reais.
+
+# ---- Custos adicionais (frações) ----
+costs:
+  soft_cost_pct: 0.10          # projeto, licenças, taxas (% sobre o custo de construção)
+  carrying_cost_pct: 0.06      # juros + IPTU + seguro durante a obra (% sobre terreno+obra)
+  selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
+
+# ---- Regras de corte (o que é "viável") ----
+rules:
+  target_margin: 0.18          # margem líquida mínima (lucro / ARV)
+  max_land_to_arv_pct: 0.20    # terreno não pode passar de 20% do ARV
+  require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
+
+# ---- Banco de dados (memória do que já foi visto) ----
+storage:
+  db_path: seen_listings.db

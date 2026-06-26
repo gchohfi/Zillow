@@ -1,0 +1,90 @@
+"""Envio de alertas: console (sempre), e-mail (SMTP) e Telegram — ambos opcionais."""
+
+from __future__ import annotations
+
+import smtplib
+from email.mime.text import MIMEText
+
+import requests
+
+from .config import env
+from .models import ViabilityResult
+
+
+def _format_result(r: ViabilityResult) -> str:
+    L = r.listing
+    dist = f"{L.distance_km:.0f} km" if L.distance_km is not None else "?"
+    lines = [
+        f"🏗️  OPORTUNIDADE VIÁVEL — {L.address or L.id}",
+        f"    Preço terreno : US$ {r.land_cost:,.0f}",
+        f"    ARV (revenda) : US$ {r.arv:,.0f}",
+        f"    Custo total   : US$ {r.total_cost:,.0f}",
+        f"    Lucro estimado: US$ {r.profit:,.0f}  (margem {r.margin:.1%})",
+        f"    Terreno/ARV   : {r.land_to_arv:.1%}",
+        f"    Distância     : {dist} de Orlando",
+        f"    Link          : {L.url or '(sem link)'}",
+        "    " + " | ".join(r.reasons),
+    ]
+    return "\n".join(lines)
+
+
+def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
+    """Notifica as oportunidades viáveis pelos canais configurados."""
+    if not results:
+        print("Nenhuma oportunidade viável nova nesta rodada.")
+        return
+
+    body = "\n\n".join(_format_result(r) for r in results)
+    header = f"{len(results)} oportunidade(s) viável(is) de terreno perto de Orlando:\n"
+    message = header + "\n" + body
+
+    # Console — sempre
+    print(message)
+
+    if dry_run:
+        print("\n[dry-run] alertas externos não foram enviados.")
+        return
+
+    _maybe_send_email(message, count=len(results))
+    _maybe_send_telegram(message)
+
+
+def _maybe_send_email(message: str, count: int) -> None:
+    host = env("SMTP_HOST")
+    to_addr = env("ALERT_EMAIL_TO")
+    if not host or not to_addr:
+        return
+    user = env("SMTP_USER")
+    password = env("SMTP_PASSWORD")
+    port = int(env("SMTP_PORT", "587") or 587)
+
+    msg = MIMEText(message, _charset="utf-8")
+    msg["Subject"] = f"[Orlando Land] {count} oportunidade(s) viável(is)"
+    msg["From"] = user or "orlando-land-detector"
+    msg["To"] = to_addr
+    try:
+        with smtplib.SMTP(host, port, timeout=30) as server:
+            server.starttls()
+            if user and password:
+                server.login(user, password)
+            server.send_message(msg)
+        print(f"[email] enviado para {to_addr}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[email] falhou: {exc}")
+
+
+def _maybe_send_telegram(message: str) -> None:
+    token = env("TELEGRAM_BOT_TOKEN")
+    chat_id = env("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": message, "disable_web_page_preview": True},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        print("[telegram] enviado")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[telegram] falhou: {exc}")
