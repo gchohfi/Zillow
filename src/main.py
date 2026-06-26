@@ -13,7 +13,7 @@ from .viability import evaluate
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
     cfg = Config.load()
-    source = get_source(use_mock)
+    source = get_source(cfg, use_mock)
     store = SeenStore(cfg.db_path)
 
     search = cfg.search

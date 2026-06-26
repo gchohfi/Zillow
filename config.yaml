@@ -33,3 +33,47 @@ rules:
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:
   db_path: seen_listings.db
+
+# ============================================================================
+#  FONTE DE DADOS — aponte para a API que você assinar no RapidAPI.
+#  Cada API tem nomes de campo um pouco diferentes; aqui você mapeia tudo
+#  SEM precisar mexer no código. Use --mock para testar sem chave nenhuma.
+# ============================================================================
+datasource:
+  provider: realtor_rapidapi      # "realtor_rapidapi" ou "mock"
+
+  rapidapi:
+    # Host da API no RapidAPI (também vai no header X-RapidAPI-Host).
+    host: us-real-estate.p.rapidapi.com
+    base_url: https://us-real-estate.p.rapidapi.com
+    method: GET                   # GET ou POST
+    search_path: /v2/for-sale     # AJUSTE conforme a doc da sua API
+
+    # Parâmetros da query (GET) ou corpo JSON (POST). Os placeholders
+    # {lat} {lng} {radius_km} {radius_miles} são preenchidos em tempo de execução.
+    params:
+      location: "{lat},{lng}"
+      radius: "{radius_miles}"
+      property_type: land
+      sort: newest
+      limit: 50
+
+    # Onde está a LISTA de resultados no JSON da resposta (tenta na ordem,
+    # usa o primeiro caminho que existir). Notação com pontos.
+    results_paths:
+      - data.home_search.results
+      - data.results
+      - results
+      - data
+
+    # Mapeamento campo_da_listagem -> caminho(s) no item (tenta na ordem).
+    fields:
+      id:            [property_id, listing_id, id]
+      price:         [list_price, price]
+      lat:           [location.address.coordinate.lat, coordinate.lat, latitude, lat]
+      lng:           [location.address.coordinate.lon, coordinate.lng, longitude, lng, lon]
+      address:       [location.address.line, address.line, address, full_address]
+      lot_size_sqft: [lot_size.size, lot_sqft, lotSize]
+      zoning:        [zoning, zoning_description]
+      listing_date:  [list_date, listing_date, listed_date]
+      url:           [href, rdc_web_url, permalink, url]
