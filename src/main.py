@@ -15,7 +15,11 @@ from .viability import evaluate
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
     cfg = Config.load()
-    source = get_source(cfg, use_mock)
+    try:
+        source = get_source(cfg, use_mock)
+    except RuntimeError as exc:
+        print(f"[config] {exc}")
+        return
     store = SeenStore(cfg.db_path)
 
     search = cfg.search
