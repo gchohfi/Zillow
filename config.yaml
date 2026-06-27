@@ -48,14 +48,33 @@ tiers:
   - name: baixo_padrao
     label: "Baixo padrão"
     max_price: 50000           # terrenos até US$ 50.000
+    # Ex.: casa menor e revenda mais modesta neste segmento:
+    # build:
+    #   living_area_sqft: 1600
+    #   resale_price_per_sqft: 280
 
   - name: medio_padrao
     label: "Médio padrão"
     max_price: 300000          # terrenos ou casas até US$ 300.000
+    # build:
+    #   living_area_sqft: 2400
+    #   resale_price_per_sqft: 340
+    # rules:
+    #   target_margin: 0.16
 
   - name: alto_padrao
     label: "Alto padrão"
     max_price: null            # sem teto (acima de US$ 300.000)
+    # ALTO PADRÃO tem muito mais variáveis — preencha conforme for definindo:
+    # build:
+    #   living_area_sqft: 4000
+    #   construction_cost_per_sqft: 250
+    #   resale_price_per_sqft: 520
+    # costs:
+    #   selling_cost_pct: 0.08
+    # rules:
+    #   target_margin: 0.22
+    #   min_lot_size_sqft: 12000
 
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:
@@ -66,12 +85,53 @@ output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
 
 # ============================================================================
-#  FONTE DE DADOS — aponte para a API que você assinar no RapidAPI.
-#  Cada API tem nomes de campo um pouco diferentes; aqui você mapeia tudo
-#  SEM precisar mexer no código. Use --mock para testar sem chave nenhuma.
+#  FONTE DE DADOS — use RentCast para teste/produção leve, RapidAPI como fallback.
+#  Use --mock para testar sem chave nenhuma.
 # ============================================================================
 datasource:
-  provider: realtor_rapidapi      # "realtor_rapidapi" ou "mock"
+  provider: rentcast      # "rentcast", "realtor_rapidapi" ou "mock"
+
+  rentcast:
+    # ----------------------------------------------------------------------
+    #  API oficial da RentCast.
+    #  Cole a chave em RENTCAST_API_KEY no .env.
+    #  Endpoint: GET /listings/sale
+    # ----------------------------------------------------------------------
+    base_url: https://api.rentcast.io/v1
+    search_path: /listings/sale
+    property_type: Land
+    status: Active
+    limit: 500
+    max_pages: 1
+
+    # Parâmetros opcionais aceitos pela RentCast. Para capturar oportunidades
+    # recentes sem gastar chamadas demais, comece com poucos dias e ajuste.
+    params:
+      daysOld: "1-14"
+
+    # A RentCast limita radius a 100 milhas. Estes pontos sobrepostos ajudam a
+    # cobrir o raio de 180 km; o geofiltro do sistema faz o corte final exato.
+    search_points:
+      - name: Orlando
+        lat: 28.5384
+        lng: -81.3789
+        radius_miles: 100
+      - name: Clermont
+        lat: 28.5494
+        lng: -81.7729
+        radius_miles: 100
+      - name: Daytona Beach
+        lat: 29.2108
+        lng: -81.0228
+        radius_miles: 100
+      - name: Melbourne
+        lat: 28.0836
+        lng: -80.6081
+        radius_miles: 100
+      - name: Lakeland
+        lat: 28.0395
+        lng: -81.9498
+        radius_miles: 100
 
   rapidapi:
     # ----------------------------------------------------------------------
@@ -84,10 +144,20 @@ datasource:
     search_path: /forSale
     zip_param: zip
 
+    # Parâmetros da query. {lat} {lng} {radius_km} {radius_miles} são
+    # preenchidos em tempo de execução.
+    #
+    # IMPORTANTE sobre o RAIO: esta API costuma limitar 'radius' a ~50 milhas
+    # (~80 km) a partir de um postal_code. Por isso usamos um CEP central de
+    # Orlando + raio 50, e o GEOFILTRO do próprio sistema (search.radius_km =
+    # 180) faz o corte preciso. Para cobrir os 180 km inteiros, dá para buscar
+    # em vários CEPs centrais e juntar — me peça que eu adiciono.
     params:
       zip: "32801"                # CEP padrão (usado se postal_codes abaixo ficar vazio)
 
     # ---- Busca multi-CEP (cobre os ~180 km ao redor de Orlando) ----
+    # O sistema consulta CADA CEP (raio 50 mi) e junta os resultados, removendo
+    # duplicados. O geofiltro (search.radius_km = 180) faz o corte fino no fim.
     postal_codes:
       - "32801"   # Orlando (centro)
       - "34711"   # Clermont (oeste)
@@ -100,14 +170,17 @@ datasource:
       - "34470"   # Ocala (norte)
       - "33880"   # Winter Haven (sul/sudoeste)
 
+    # Onde está a LISTA de resultados no JSON da resposta (tenta na ordem).
+    # Inclui caminhos das versões v2 e v3 da API para robustez.
     results_paths:
       - data
       - listings
       - results
       - properties
-      - data.home_search.results
+      - data.home_search.results   # schema v3 / Realtor
       - data.results
 
+    # Mapeamento campo_da_listagem -> caminho(s) no item (tenta na ordem).
     fields:
       id:            [property_id, zpid, listing_id, id, mlsId, mls.id]
       price:         [price, list_price, listPrice, unformattedPrice]
