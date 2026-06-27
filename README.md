@@ -1,7 +1,7 @@
 # Orlando Land Detector 🏗️
 
 Detector de oportunidades de **terreno para spec build** (comprar terreno → construir casa → vender)
-num raio de **150 km de Orlando, FL**, com cálculo automático de viabilidade financeira.
+num raio de **180 km de Orlando, FL**, com cálculo automático de viabilidade financeira.
 
 O sistema busca novas listagens de terreno, filtra por distância, lembra o que já viu
 (para te avisar só do que é **novo**), aplica a **sua fórmula de viabilidade** e te alerta
@@ -13,7 +13,7 @@ quando aparece algo que vale a pena.
 
 ```
   Fonte de dados        Geofiltro          Novidade           Viabilidade         Alerta
- (listagens novas) ──▶ (≤150km de   ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
+ (listagens novas) ──▶ (≤180km de   ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
                         Orlando)          guarda no DB)        viável?)             Telegram /
                                                                                    console)
 ```
@@ -23,7 +23,7 @@ Arquivos principais:
 | Arquivo | Papel |
 |---|---|
 | `config.yaml` | **A sua fórmula** e parâmetros (margem alvo, custo de construção, raio, etc.) |
-| `src/datasource.py` | Cliente da fonte de dados (Fase 1: Realtor.com via RapidAPI; tem modo `mock`) |
+| `src/datasource.py` | Cliente da fonte de dados (Fase 1: RapidAPI configurável; tem modo `mock`) |
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
 | `src/storage.py` | Banco SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/viability.py` | Motor de viabilidade do spec build |
@@ -37,7 +37,7 @@ Arquivos principais:
 > ⚠️ O **Zillow não tem mais API pública** para listagens e fazer scraping viola os termos
 > deles. Por isso o projeto usa fontes melhores e legais.
 
-1. **Fase 1 — Protótipo (este código):** Realtor.com via [RapidAPI](https://rapidapi.com)
+1. **Fase 1 — Protótipo (este código):** uma API de listagens residenciais via [RapidAPI](https://rapidapi.com)
    (tem plano gratuito/barato). Roda em modo `mock` sem chave nenhuma, para você testar
    a fórmula e o pipeline de ponta a ponta.
 2. **Fase 2 — Produção leve:** [Regrid](https://regrid.com) (dados de parcela/lote e
@@ -112,16 +112,16 @@ No cron, por exemplo todo dia às 8h:
 `config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em
 sqft). Use `0` para desligar. Listagens sem o dado de lote passam com um aviso.
 
-### Cobertura dos 150 km (busca multi-CEP)
+### Cobertura dos 180 km (busca multi-CEP)
 
 A API limita o raio a ~50 milhas por CEP, então o sistema consulta **vários CEPs**
 ao redor de Orlando (lista em `config.yaml → datasource.rapidapi.postal_codes`),
-junta os resultados, remove duplicados, e o geofiltro de 150 km faz o corte final.
+junta os resultados, remove duplicados, e o geofiltro de 180 km faz o corte final.
 
 ## Testes
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 pytest
 ```
 
@@ -136,17 +136,21 @@ ARV (valor de revenda da casa pronta)   = preço_revenda_por_sqft × área_const
 − Preço do terreno (o preço da listagem)
 − Custo de construção                    = custo_construção_por_sqft × área_construída
 − Custos "soft" (projeto, licenças)      = soft_cost_pct × custo_construção
-− Custos de carrego (juros, IPTU, seguro)= carrying_cost_pct × (terreno + construção)
+− Closing da compra do terreno           = purchase_closing_pct × terreno
+− Contingência de obra                    = contingency_pct × construção
+− Custos de carrego (juros, IPTU, seguro)= carrying_cost_annual_pct × meses/12 × (terreno + construção)
 − Custos de venda (comissão + closing)   = selling_cost_pct × ARV
 = LUCRO estimado
 
 Margem = LUCRO / ARV
+Terreno/investimento total = Preço do terreno / Custo total estimado
 ```
 
 **Regras de corte** (ajustáveis em `config.yaml`) que decidem viável / não viável:
 
-- Terreno deve ser **≤ `max_land_to_arv_pct`** do ARV (regra clássica de incorporador, ~20%)
+- Terreno deve ser **≤ `max_land_to_total_investment_pct`** do investimento total, hoje 27%
 - Margem líquida **≥ `target_margin`** (ex.: 18%)
+- Listagens com preço zerado ou inválido são descartadas antes de gerar alerta
 - Zoneamento deve permitir residencial (quando o dado existir)
 
 Todos esses números são **seus** — edite `config.yaml`.
