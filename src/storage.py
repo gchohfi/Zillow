@@ -16,7 +16,9 @@ class SeenStore:
     def __init__(self, db_path: str = "seen_listings.db"):
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, timeout=30)
+        if db_path != ":memory:":
+            self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
 
     def _init_schema(self) -> None:

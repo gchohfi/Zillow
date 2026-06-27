@@ -19,8 +19,10 @@ def _format_result(r: ViabilityResult) -> str:
         f"    Preço terreno : US$ {r.land_cost:,.0f}",
         f"    ARV (revenda) : US$ {r.arv:,.0f}",
         f"    Custo total   : US$ {r.total_cost:,.0f}",
+        f"    Closing compra: US$ {r.purchase_closing_cost:,.0f}",
+        f"    Contingência  : US$ {r.contingency_cost:,.0f}",
         f"    Lucro estimado: US$ {r.profit:,.0f}  (margem {r.margin:.1%})",
-        f"    Terreno/ARV   : {r.land_to_arv:.1%}",
+        f"    Terreno/invest: {r.land_to_total_investment:.1%}",
         f"    Distância     : {dist} de Orlando",
         f"    Link          : {L.url or '(sem link)'}",
         "    " + " | ".join(r.reasons),
@@ -88,4 +90,4 @@ def _maybe_send_telegram(message: str) -> None:
         resp.raise_for_status()
         print("[telegram] enviado")
     except Exception as exc:  # noqa: BLE001
-        print(f"[telegram] falhou: {exc}")
+        print(f"[telegram] falhou: {type(exc).__name__}")
