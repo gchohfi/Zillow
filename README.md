@@ -37,9 +37,9 @@ Arquivos principais:
 > ⚠️ O **Zillow não tem mais API pública** para listagens e fazer scraping viola os termos
 > deles. Por isso o projeto usa fontes melhores e legais.
 
-1. **Fase 1 — Protótipo (este código):** uma API de listagens residenciais via [RapidAPI](https://rapidapi.com)
-   (tem plano gratuito/barato). Roda em modo `mock` sem chave nenhuma, para você testar
-   a fórmula e o pipeline de ponta a ponta.
+1. **Fase 1 — Protótipo/produção leve (este código):** [RentCast](https://www.rentcast.io/api)
+   como fonte preferencial de listagens à venda, com RapidAPI como fallback configurável.
+   Roda em modo `mock` sem chave nenhuma, para você testar a fórmula e o pipeline de ponta a ponta.
 2. **Fase 2 — Produção leve:** [Regrid](https://regrid.com) (dados de parcela/lote e
    zoneamento) + [ATTOM](https://www.attomdata.com) (valor de revenda / comps).
 3. **Fase 3 — Tempo real:** feed da **Stellar MLS** (a MLS de Orlando) via RESO Web API,
@@ -59,13 +59,15 @@ pip install -r requirements.txt
 cp .env.example .env        # preencha as chaves quando tiver
 ```
 
+Para testar com RentCast, preencha `RENTCAST_API_KEY` no `.env`.
+
 ## Uso
 
 ```bash
 # Roda com dados de exemplo (mock) — não precisa de chave nenhuma:
 python -m src.main --mock
 
-# Roda de verdade (precisa de RAPIDAPI_KEY no .env):
+# Roda de verdade (precisa de RENTCAST_API_KEY no .env):
 python -m src.main
 
 # Só mostra no console, sem mandar alerta:
@@ -112,11 +114,16 @@ No cron, por exemplo todo dia às 8h:
 `config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em
 sqft). Use `0` para desligar. Listagens sem o dado de lote passam com um aviso.
 
-### Cobertura dos 180 km (busca multi-CEP)
+### Cobertura dos 180 km
 
-A API limita o raio a ~50 milhas por CEP, então o sistema consulta **vários CEPs**
-ao redor de Orlando (lista em `config.yaml → datasource.rapidapi.postal_codes`),
-junta os resultados, remove duplicados, e o geofiltro de 180 km faz o corte final.
+A RentCast limita o raio por busca a **100 milhas**, então o sistema consulta
+**vários pontos ao redor de Orlando** (lista em
+`config.yaml → datasource.rentcast.search_points`), junta os resultados, remove
+duplicados, e o geofiltro de 180 km faz o corte final.
+
+Para economizar chamadas no primeiro teste, o padrão busca listagens com
+`daysOld: "1-14"` e apenas a primeira página (`max_pages: 1`). Esses valores são
+ajustáveis em `config.yaml`.
 
 ## Testes
 
