@@ -52,10 +52,24 @@ def first(item: dict[str, Any], paths: list[str]) -> Any:
 
 
 def _safe_float(value: Any) -> float | None:
+    if isinstance(value, str):
+        value = value.replace("$", "").replace(",", "").strip()
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_list_of_dicts(obj: Any) -> list[dict[str, Any]]:
+    """Finds a likely listings array when the API response shape changes."""
+    if isinstance(obj, list) and all(isinstance(item, dict) for item in obj):
+        return obj
+    if isinstance(obj, dict):
+        for value in obj.values():
+            found = _first_list_of_dicts(value)
+            if found:
+                return found
+    return []
 
 
 # --------------------------------------------------------------------------- #
@@ -120,16 +134,31 @@ class RealtorRapidAPISource(DataSource):
         }
         fields = self.cfg.get("fields", {})
 
-        # Busca em cada CEP (multi-CEP cobre os ~150 km); junta e deduplica.
+        # Busca em cada CEP (multi-CEP cobre os ~180 km); junta e deduplica.
         params_base = self.cfg.get("params", {})
-        postal_codes = self.cfg.get("postal_codes") or [params_base.get("postal_code")]
+        zip_param = self.cfg.get("zip_param", "postal_code")
+        postal_codes = self.cfg.get("postal_codes") or [
+            params_base.get(zip_param) or params_base.get("postal_code")
+        ]
 
         by_id: dict[str, Listing] = {}
         for zip_code in [z for z in postal_codes if z]:
             params = dict(params_base)
-            params["postal_code"] = zip_code
+            params[zip_param] = zip_code
+            if zip_param != "postal_code":
+                params.pop("postal_code", None)
             try:
                 raw_items = self._request(ctx, params)
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status == 403:
+                    print("  [erro] RapidAPI recusou a chamada: sua conta nao esta assinada nesta API.")
+                    break
+                if status == 429:
+                    print("  [erro] RapidAPI recusou a chamada: limite de requisicoes atingido.")
+                    break
+                print(f"  [aviso] falha ao buscar CEP {zip_code}: {exc}")
+                continue
             except requests.RequestException as exc:
                 print(f"  [aviso] falha ao buscar CEP {zip_code}: {exc}")
                 continue
@@ -160,7 +189,7 @@ class RealtorRapidAPISource(DataSource):
             if isinstance(found, list):
                 return found
         # Último recurso: se a própria resposta já for uma lista.
-        return data if isinstance(data, list) else []
+        return data if isinstance(data, list) else _first_list_of_dicts(data)
 
     def _parse(self, item: dict[str, Any], fields: dict[str, list[str]]) -> Listing:
         return Listing(
@@ -170,6 +199,7 @@ class RealtorRapidAPISource(DataSource):
             lng=_safe_float(first(item, fields.get("lng", []))) or 0.0,
             address=str(first(item, fields.get("address", [])) or ""),
             lot_size_sqft=_safe_float(first(item, fields.get("lot_size_sqft", []))),
+            property_type=str(first(item, fields.get("property_type", [])) or "land"),
             zoning=first(item, fields.get("zoning", [])),
             listing_date=first(item, fields.get("listing_date", [])),
             url=str(first(item, fields.get("url", [])) or ""),
