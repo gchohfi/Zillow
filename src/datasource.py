@@ -4,6 +4,8 @@ A fonte "realtor_rapidapi" é dirigida pelo config.yaml: você descreve o host,
 o endpoint, os parâmetros e o mapeamento de campos da API que assinou no RapidAPI,
 e o código se adapta — sem necessidade de editar Python para trocar de provedor.
 
+A fonte "rentcast" usa a API oficial da RentCast para listagens à venda.
+
 Para Fase 2/3 (Regrid, ATTOM, RESO/MLS), crie uma classe que herde de `DataSource`
 e implemente `fetch_new_land_listings`.
 """
@@ -208,6 +210,113 @@ class RealtorRapidAPISource(DataSource):
         )
 
 
+# --------------------------------------------------------------------------- #
+#  Fonte RentCast (listagens à venda)
+# --------------------------------------------------------------------------- #
+class RentCastSource(DataSource):
+    """Listagens de terrenos via RentCast Sale Listings API."""
+
+    def __init__(self, ds_cfg: dict[str, Any]) -> None:
+        self.cfg = ds_cfg.get("rentcast", {})
+        self.key = env("RENTCAST_API_KEY")
+        if not self.key:
+            raise RuntimeError(
+                "RENTCAST_API_KEY não configurada. Use --mock para testar sem chave, "
+                "ou preencha o .env."
+            )
+
+    def fetch_new_land_listings(self, cfg: Config) -> list[Listing]:
+        search = cfg.search
+        radius_km = float(search["radius_km"])
+        limit = int(self.cfg.get("limit", 500))
+        max_pages = int(self.cfg.get("max_pages", 1))
+        points = self.cfg.get("search_points") or [
+            {
+                "name": "Orlando",
+                "lat": search["center_lat"],
+                "lng": search["center_lng"],
+                "radius_miles": min(100, radius_km / 1.60934),
+            }
+        ]
+
+        by_id: dict[str, Listing] = {}
+        for point in points:
+            name = point.get("name", "ponto")
+            for page in range(max_pages):
+                offset = page * limit
+                try:
+                    raw_items = self._request(point, limit=limit, offset=offset)
+                except requests.HTTPError as exc:
+                    status = exc.response.status_code if exc.response is not None else None
+                    if status in (401, 403):
+                        print("  [erro] RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano.")
+                        return list(by_id.values())
+                    if status == 429:
+                        print("  [erro] RentCast recusou a chamada: limite de requisicoes atingido.")
+                        return list(by_id.values())
+                    print(f"  [aviso] falha ao buscar RentCast {name}: {exc}")
+                    break
+                except requests.RequestException as exc:
+                    print(f"  [aviso] falha ao buscar RentCast {name}: {exc}")
+                    break
+
+                for item in raw_items:
+                    listing = self._parse(item)
+                    if listing.id and listing.id not in by_id:
+                        by_id[listing.id] = listing
+                print(f"  RentCast {name} offset {offset}: {len(raw_items)} listagem(ns)")
+
+                if len(raw_items) < limit:
+                    break
+
+        return list(by_id.values())
+
+    def _request(self, point: dict[str, Any], limit: int, offset: int) -> list[dict[str, Any]]:
+        url = self.cfg.get("base_url", "https://api.rentcast.io/v1").rstrip("/") + \
+            self.cfg.get("search_path", "/listings/sale")
+        params: dict[str, Any] = {
+            "latitude": point["lat"],
+            "longitude": point["lng"],
+            "radius": min(float(point.get("radius_miles", 100)), 100.0),
+            "propertyType": self.cfg.get("property_type", "Land"),
+            "status": self.cfg.get("status", "Active"),
+            "limit": limit,
+            "offset": offset,
+        }
+        optional_params = self.cfg.get("params", {})
+        params.update({k: v for k, v in optional_params.items() if v not in (None, "")})
+        headers = {"Accept": "application/json", "X-Api-Key": self.key}
+        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
+    def _parse(self, item: dict[str, Any]) -> Listing:
+        address = item.get("formattedAddress") or ", ".join(
+            part for part in [
+                item.get("addressLine1"),
+                item.get("city"),
+                item.get("state"),
+                item.get("zipCode"),
+            ]
+            if part
+        )
+        return Listing(
+            id=str(item.get("id") or item.get("mlsNumber") or ""),
+            price=_safe_float(item.get("price")) or 0.0,
+            lat=_safe_float(item.get("latitude")) or 0.0,
+            lng=_safe_float(item.get("longitude")) or 0.0,
+            address=str(address or ""),
+            lot_size_sqft=_safe_float(item.get("lotSize")),
+            property_type=str(item.get("propertyType") or "Land"),
+            zoning=item.get("zoning"),
+            listing_date=item.get("listedDate") or item.get("createdDate") or item.get("lastSeenDate"),
+            url=str(item.get("listingUrl") or item.get("url") or ""),
+            source="rentcast",
+            raw=item,
+        )
+
+
 def _fill(value: Any, ctx: dict[str, Any]) -> Any:
     """Substitui placeholders {lat} {lng} {radius_km} {radius_miles} recursivamente.
 
@@ -236,4 +345,6 @@ def get_source(cfg: Config, use_mock: bool = False) -> DataSource:
         return MockDataSource()
     if provider == "realtor_rapidapi":
         return RealtorRapidAPISource(ds_cfg)
+    if provider == "rentcast":
+        return RentCastSource(ds_cfg)
     raise ValueError(f"datasource.provider desconhecido: {provider!r}")
