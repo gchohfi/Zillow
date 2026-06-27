@@ -38,6 +38,10 @@ def _merged(base: dict, override: dict | None) -> dict:
 
 def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     """Aplica a fórmula de spec build (com parâmetros do segmento) e diz se é viável."""
+    land_cost = float(listing.price)
+    if land_cost <= 0:
+        raise ValueError(f"preco invalido para a listagem {listing.id!r}: {land_cost}")
+
     tier = _resolve_tier(float(listing.price), cfg)
     tier_label = tier.get("label") or tier.get("name") or ""
 
@@ -50,16 +54,32 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
 
     # --- Componentes da fórmula ---
     arv = float(build["resale_price_per_sqft"]) * living_area
-    land_cost = float(listing.price)
     construction_cost = float(build["construction_cost_per_sqft"]) * living_area
     soft_cost = float(costs["soft_cost_pct"]) * construction_cost
-    carrying_cost = float(costs["carrying_cost_pct"]) * (land_cost + construction_cost)
+    purchase_closing_cost = float(costs.get("purchase_closing_pct", 0)) * land_cost
+    contingency_cost = float(costs.get("contingency_pct", 0)) * construction_cost
+    if "carrying_cost_annual_pct" in costs:
+        carrying_pct = float(costs["carrying_cost_annual_pct"]) * (
+            float(costs.get("carrying_months", 12)) / 12
+        )
+    else:
+        carrying_pct = float(costs.get("carrying_cost_pct", 0))
+    carrying_cost = carrying_pct * (land_cost + construction_cost)
     selling_cost = float(costs["selling_cost_pct"]) * arv
 
-    total_cost = land_cost + construction_cost + soft_cost + carrying_cost + selling_cost
+    total_cost = (
+        land_cost
+        + construction_cost
+        + soft_cost
+        + purchase_closing_cost
+        + contingency_cost
+        + carrying_cost
+        + selling_cost
+    )
     profit = arv - total_cost
     margin = profit / arv if arv else 0.0
     land_to_arv = land_cost / arv if arv else float("inf")
+    land_to_total_investment = land_cost / total_cost if total_cost else float("inf")
 
     # --- Regras de corte ---
     reasons: list[str] = []
@@ -74,12 +94,16 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         is_viable = False
         reasons.append(f"✗ margem {margin:.1%} < alvo {target_margin:.0%}")
 
-    max_land = float(rules["max_land_to_arv_pct"])
-    if land_to_arv <= max_land:
-        reasons.append(f"✓ terreno {land_to_arv:.1%} do ARV ≤ {max_land:.0%}")
+    max_land = float(rules["max_land_to_total_investment_pct"])
+    if land_to_total_investment <= max_land:
+        reasons.append(
+            f"✓ terreno {land_to_total_investment:.1%} do investimento total ≤ {max_land:.0%}"
+        )
     else:
         is_viable = False
-        reasons.append(f"✗ terreno {land_to_arv:.1%} do ARV > {max_land:.0%}")
+        reasons.append(
+            f"✗ terreno {land_to_total_investment:.1%} do investimento total > {max_land:.0%}"
+        )
 
     min_lot = float(rules.get("min_lot_size_sqft") or 0)
     if min_lot > 0:
@@ -107,12 +131,15 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         land_cost=land_cost,
         construction_cost=construction_cost,
         soft_cost=soft_cost,
+        purchase_closing_cost=purchase_closing_cost,
+        contingency_cost=contingency_cost,
         carrying_cost=carrying_cost,
         selling_cost=selling_cost,
         total_cost=total_cost,
         profit=profit,
         margin=margin,
         land_to_arv=land_to_arv,
+        land_to_total_investment=land_to_total_investment,
         is_viable=is_viable,
         tier=tier_label,
         reasons=reasons,

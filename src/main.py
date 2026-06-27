@@ -7,6 +7,8 @@ import argparse
 from .config import Config
 from .datasource import get_source
 from .geo import within_radius
+from .notifier import notify
+from .reporter import append_results
 from .storage import SeenStore
 from .viability import evaluate
 
@@ -27,7 +29,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
 
     viable_new = []
-    n_out_of_radius = n_already_seen = n_not_viable = 0
+    n_out_of_radius = n_already_seen = n_not_viable = n_failed = 0
 
     for listing in listings:
         inside, dist = within_radius(
@@ -41,24 +43,29 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         if not store.is_new(listing.id):
             n_already_seen += 1
             continue
-        store.mark_seen(listing)   # marca como visto (mesmo se não for viável)
 
-        result = evaluate(listing, cfg)
+        try:
+            result = evaluate(listing, cfg)
+        except Exception as exc:  # noqa: BLE001
+            n_failed += 1
+            print(f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: {exc}")
+            continue
+
+        store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
             viable_new.append(result)
         else:
             n_not_viable += 1
 
     print(f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
-          f"não viáveis: {n_not_viable} | viáveis NOVOS: {len(viable_new)}")
+          f"não viáveis: {n_not_viable} | falhas: {n_failed} | "
+          f"viáveis NOVOS: {len(viable_new)}")
 
     # Grava as oportunidades viáveis na planilha CSV.
     csv_path = cfg.raw.get("output", {}).get("csv_path")
     if csv_path and viable_new:
-        from .reporter import append_results
         append_results(viable_new, csv_path)
 
-    from .notifier import notify
     notify(viable_new, dry_run=dry_run)
 
     store.close()

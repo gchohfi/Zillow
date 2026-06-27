@@ -34,12 +34,15 @@ class ViabilityResult:
     land_cost: float
     construction_cost: float
     soft_cost: float
+    purchase_closing_cost: float
+    contingency_cost: float
     carrying_cost: float
     selling_cost: float
     total_cost: float
     profit: float
     margin: float
     land_to_arv: float
+    land_to_total_investment: float
     is_viable: bool
     tier: str = ""                                      # segmento: baixo/médio/alto padrão
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou

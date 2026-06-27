@@ -1,6 +1,7 @@
 """Testes da fórmula de viabilidade e do geofiltro."""
 
 from src.config import Config
+from src.datasource import MockDataSource
 from src.geo import haversine_km, within_radius
 from src.models import Listing
 from src.viability import evaluate
@@ -8,7 +9,7 @@ from src.viability import evaluate
 
 def _cfg() -> Config:
     return Config(raw={
-        "search": {"center_lat": 28.5384, "center_lng": -81.3789, "radius_km": 150},
+        "search": {"center_lat": 28.5384, "center_lng": -81.3789, "radius_km": 180},
         "build": {
             "living_area_sqft": 2000,
             "construction_cost_per_sqft": 165,
@@ -17,7 +18,7 @@ def _cfg() -> Config:
         "costs": {"soft_cost_pct": 0.10, "carrying_cost_pct": 0.06, "selling_cost_pct": 0.07},
         "rules": {
             "target_margin": 0.18,
-            "max_land_to_arv_pct": 0.20,
+            "max_land_to_total_investment_pct": 0.27,
             "require_residential_zoning": True,
         },
         "storage": {"db_path": ":memory:"},
@@ -31,7 +32,7 @@ def test_haversine_orlando_to_tampa():
 
 
 def test_within_radius():
-    inside, dist = within_radius(28.5384, -81.3789, 28.41, -81.50, 150)
+    inside, dist = within_radius(28.5384, -81.3789, 28.41, -81.50, 180)
     assert inside and dist < 30
 
 
@@ -40,7 +41,18 @@ def test_cheap_lot_is_viable():
     r = evaluate(lot, _cfg())
     assert r.is_viable
     assert r.margin >= 0.18
-    assert r.land_to_arv <= 0.20
+    assert r.land_to_total_investment <= 0.27
+    assert r.land_to_total_investment == r.land_cost / r.total_cost
+
+
+def test_zero_price_is_rejected():
+    lot = Listing(id="zero", price=0, lat=28.41, lng=-81.50, zoning="residential")
+    try:
+        evaluate(lot, _cfg())
+    except ValueError as exc:
+        assert "preco invalido" in str(exc)
+    else:
+        raise AssertionError("zero-price listing should not be evaluated as viable")
 
 
 def test_expensive_lot_fails_margin_or_ratio():
@@ -85,3 +97,13 @@ def test_small_lot_rejected():
     big = Listing(id="e", price=95_000, lat=28.41, lng=-81.50,
                   zoning="residential", lot_size_sqft=8000)
     assert evaluate(big, cfg).is_viable
+
+
+def test_real_config_evaluates_mock_listings():
+    cfg = Config.load()
+    listings = MockDataSource().fetch_new_land_listings(cfg)
+    results = [evaluate(listing, cfg) for listing in listings if listing.price > 0]
+    assert results
+    assert cfg.search["radius_km"] == 180
+    assert "max_land_to_total_investment_pct" in cfg.rules
+    assert all(hasattr(result, "land_to_total_investment") for result in results)
