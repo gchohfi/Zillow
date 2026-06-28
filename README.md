@@ -15,6 +15,7 @@ quando aparece algo que vale a pena.
   Fonte de dados        Geofiltro          Novidade           Viabilidade         Alerta
  (listagens novas) ──▶ (≤180km de   ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
                         Orlando)          guarda no DB)        viável?)             Telegram /
+                                                                                   WhatsApp /
                                                                                    console)
 ```
 
@@ -27,7 +28,7 @@ Arquivos principais:
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
 | `src/storage.py` | Banco SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/viability.py` | Motor de viabilidade do spec build |
-| `src/notifier.py` | Envio de alertas (console, e-mail SMTP, Telegram) |
+| `src/notifier.py` | Envio de alertas (console, e-mail SMTP, Telegram, WhatsApp via Z-API) |
 | `src/main.py` | Orquestra tudo: busca → filtra → pontua → alerta |
 
 ---
