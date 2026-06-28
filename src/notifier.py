@@ -99,17 +99,21 @@ def _maybe_send_zapi_whatsapp(message: str) -> None:
     instance_token = env("ZAPI_INSTANCE_TOKEN")
     client_token = env("ZAPI_CLIENT_TOKEN")
     phone = env("ZAPI_PHONE")
-    if not all([instance_id, instance_token, client_token, phone]):
+    if not all([instance_id, instance_token, phone]):
         return
 
     url = (
         "https://api.z-api.io/instances/"
         f"{instance_id}/token/{instance_token}/send-text"
     )
+    headers = {"Content-Type": "application/json"}
+    if client_token:
+        headers["Client-Token"] = client_token
+
     try:
         resp = requests.post(
             url,
-            headers={"Client-Token": client_token, "Content-Type": "application/json"},
+            headers=headers,
             json={"phone": phone, "message": message},
             timeout=30,
         )
