@@ -1,4 +1,4 @@
-"""Envio de alertas: console (sempre), e-mail (SMTP) e Telegram — ambos opcionais."""
+"""Envio de alertas: console (sempre), e-mail, Telegram e WhatsApp — opcionais."""
 
 from __future__ import annotations
 
@@ -43,13 +43,14 @@ def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
 
 
 def send_message(subject: str, body: str, dry_run: bool = False) -> None:
-    """Mostra no console e dispara para os canais configurados (e-mail/Telegram)."""
+    """Mostra no console e dispara para os canais configurados."""
     print(body)
     if dry_run:
         print("\n[dry-run] envios externos não foram realizados.")
         return
     _maybe_send_email(subject, body)
     _maybe_send_telegram(f"{subject}\n\n{body}")
+    _maybe_send_zapi_whatsapp(f"{subject}\n\n{body}")
 
 
 def _maybe_send_email(subject: str, message: str) -> None:
@@ -91,3 +92,28 @@ def _maybe_send_telegram(message: str) -> None:
         print("[telegram] enviado")
     except Exception as exc:  # noqa: BLE001
         print(f"[telegram] falhou: {type(exc).__name__}")
+
+
+def _maybe_send_zapi_whatsapp(message: str) -> None:
+    instance_id = env("ZAPI_INSTANCE_ID")
+    instance_token = env("ZAPI_INSTANCE_TOKEN")
+    client_token = env("ZAPI_CLIENT_TOKEN")
+    phone = env("ZAPI_PHONE")
+    if not all([instance_id, instance_token, client_token, phone]):
+        return
+
+    url = (
+        "https://api.z-api.io/instances/"
+        f"{instance_id}/token/{instance_token}/send-text"
+    )
+    try:
+        resp = requests.post(
+            url,
+            headers={"Client-Token": client_token, "Content-Type": "application/json"},
+            json={"phone": phone, "message": message},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        print(f"[whatsapp] enviado para {phone}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[whatsapp] falhou: {type(exc).__name__}")
