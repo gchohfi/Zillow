@@ -115,6 +115,15 @@ No cron, por exemplo todo dia às 8h:
 `config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em
 sqft). Use `0` para desligar. Listagens sem o dado de lote passam com um aviso.
 
+### Filtro de zoneamento
+
+O sistema também segura oportunidades cujo zoneamento não esteja claramente
+compatível com uso residencial. Em `config.yaml → rules`, `require_known_zoning:
+true` faz com que listagens sem zoneamento sejam bloqueadas antes do alerta,
+em vez de chegarem no WhatsApp como viáveis. As listas
+`residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
+locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
+
 ### ARV por comps reais
 
 Antes de calcular a viabilidade, o sistema tenta chamar o endpoint RentCast AVM
@@ -186,7 +195,8 @@ Terreno/investimento total = Preço do terreno / Custo total estimado
 - Alto padrão não é aprovado automaticamente: exige análise de bairro/demanda
 - Margem líquida **≥ `target_margin`** (ex.: 18%)
 - Listagens com preço zerado ou inválido são descartadas antes de gerar alerta
-- Zoneamento deve permitir residencial (quando o dado existir)
+- Zoneamento deve permitir residencial; se `require_known_zoning` estiver ligado,
+  zoneamento ausente também bloqueia alerta automático
 
 Todos esses números são **seus** — edite `config.yaml`.
 
