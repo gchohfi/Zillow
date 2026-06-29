@@ -9,15 +9,55 @@ from __future__ import annotations
 from .config import Config
 from .models import Listing, ViabilityResult
 
-_RESIDENTIAL_HINTS = ("resid", "rsf", "rs-", "r-1", "r1", "single")
+_RESIDENTIAL_HINTS = (
+    "resid",
+    "single family",
+    "single-family",
+    "sfr",
+    "rsf",
+    "rs-",
+    "r-1",
+    "r1",
+    "r-2",
+    "r2",
+    "r-3",
+    "r3",
+    "pud",
+    "planned unit development",
+)
+_PROHIBITED_ZONING_HINTS = (
+    "commercial",
+    "industrial",
+    "office",
+    "retail",
+    "warehouse",
+    "conservation",
+    "wetland",
+    "agricultural",
+)
 
 
-def _looks_residential(zoning: str | None) -> bool | None:
+def _as_hints(values: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if not values:
+        return default
+    if isinstance(values, str):
+        return (values.lower(),)
+    if isinstance(values, list):
+        return tuple(str(value).lower() for value in values if value)
+    return default
+
+
+def _looks_residential(zoning: str | None, rules: dict | None = None) -> bool | None:
     """True/False se der pra inferir; None se o dado não existe."""
     if not zoning:
         return None
+    rules = rules or {}
     z = zoning.lower()
-    return any(hint in z for hint in _RESIDENTIAL_HINTS)
+    prohibited = _as_hints(rules.get("prohibited_zoning_hints"), _PROHIBITED_ZONING_HINTS)
+    if any(hint in z for hint in prohibited):
+        return False
+    residential = _as_hints(rules.get("residential_zoning_hints"), _RESIDENTIAL_HINTS)
+    return any(hint in z for hint in residential)
 
 
 def _resolve_tier(price: float, cfg: Config) -> dict:
@@ -142,12 +182,16 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
             reasons.append(f"✗ lote {listing.lot_size_sqft:,.0f} sqft < mínimo {min_lot:,.0f}")
 
     if rules.get("require_residential_zoning"):
-        residential = _looks_residential(listing.zoning)
+        residential = _looks_residential(listing.zoning, rules)
         if residential is False:
             is_viable = False
             reasons.append(f"✗ zoneamento '{listing.zoning}' não parece residencial")
         elif residential is None:
-            reasons.append("⚠ zoneamento desconhecido (verifique manualmente)")
+            if rules.get("require_known_zoning"):
+                is_viable = False
+                reasons.append("✗ zoneamento desconhecido; exige conferência antes do alerta")
+            else:
+                reasons.append("⚠ zoneamento desconhecido (verifique manualmente)")
         else:
             reasons.append("✓ zoneamento residencial")
 
