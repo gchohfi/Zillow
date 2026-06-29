@@ -20,7 +20,10 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     except RuntimeError as exc:
         print(f"[config] {exc}")
         return
-    store = SeenStore(cfg.db_path)
+    # Em modo mock os dados são estáticos e servem só para testar o pipeline;
+    # usar um DB em memória mantém cada rodada idempotente (senão a primeira
+    # rodada marca tudo como "visto" e as seguintes não acham mais nada).
+    store = SeenStore(":memory:" if use_mock else cfg.db_path)
 
     search = cfg.search
     center_lat, center_lng = search["center_lat"], search["center_lng"]
