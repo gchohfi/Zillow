@@ -21,6 +21,7 @@ def _cfg() -> Config:
             "max_land_price": 0,
             "max_land_to_total_investment_pct": 0.27,
             "require_residential_zoning": True,
+            "require_known_zoning": False,
         },
         "storage": {"db_path": ":memory:"},
     })
@@ -107,6 +108,29 @@ def test_commercial_zoning_rejected():
     lot = Listing(id="c", price=95_000, lat=28.41, lng=-81.50, zoning="commercial")
     r = evaluate(lot, _cfg())
     assert not r.is_viable
+
+
+def test_unknown_zoning_rejected_when_required():
+    cfg = _cfg()
+    cfg.raw["rules"]["require_known_zoning"] = True
+    lot = Listing(id="unknown-zoning", price=95_000, lat=28.41, lng=-81.50, zoning=None)
+
+    r = evaluate(lot, cfg)
+
+    assert not r.is_viable
+    assert any("zoneamento desconhecido" in reason for reason in r.reasons)
+
+
+def test_configurable_residential_zoning_hint_passes():
+    cfg = _cfg()
+    cfg.raw["rules"]["require_known_zoning"] = True
+    cfg.raw["rules"]["residential_zoning_hints"] = ["mx-r"]
+    lot = Listing(id="mixed-residential", price=95_000, lat=28.41, lng=-81.50, zoning="MX-R")
+
+    r = evaluate(lot, cfg)
+
+    assert r.is_viable
+    assert any("zoneamento residencial" in reason for reason in r.reasons)
 
 
 def test_tier_classification_and_override():
