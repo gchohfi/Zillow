@@ -6,7 +6,7 @@
 search:
   center_lat: 28.5384          # Orlando, FL
   center_lng: -81.3789
-  radius_km: 150               # raio de busca
+  radius_km: 80                # raio de busca inicial: ~50 milhas de Orlando
   property_types:              # tipos de listagem que interessam
     - land
     - lots-land
@@ -21,15 +21,45 @@ build:
 # ---- Custos adicionais (frações) ----
 costs:
   soft_cost_pct: 0.10          # projeto, licenças, taxas (% sobre o custo de construção)
-  carrying_cost_pct: 0.06      # juros + IPTU + seguro durante a obra (% sobre terreno+obra)
+  purchase_closing_pct: 0.02   # closing costs da compra do terreno (% sobre o terreno)
+  contingency_pct: 0.07        # contingência da obra (% sobre o custo de construção)
+  carrying_cost_annual_pct: 0.09  # juros + IPTU + seguro anualizados (% sobre terreno+obra)
+  carrying_months: 12          # prazo estimado do projeto para custo de carrego
   selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
+
+# ---- ARV por comps reais (RentCast AVM) ----
+# Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
+# Se a AVM falhar ou tiver poucos comps, o sistema volta para resale_price_per_sqft.
+arv:
+  enabled: true
+  provider: rentcast_avm
+  path: /avm/value
+  property_type: Single Family
+  max_radius_miles: 2
+  days_old: 180
+  comp_count: 10
+  min_comps: 3
+  timeout_seconds: 20
 
 # ---- Regras de corte (o que é "viável") ----
 rules:
   target_margin: 0.18          # margem líquida mínima (lucro / ARV)
-  max_land_to_arv_pct: 0.20    # terreno não pode passar de 20% do ARV
+  max_land_price: 0            # teto global desligado; cada segmento define o seu
+  max_land_to_total_investment_pct: 0.27  # terreno não pode passar de 27% do investimento total
   require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
   min_lot_size_sqft: 5000      # lote mínimo em sqft (0 ou nulo = sem mínimo)
+
+# ---- Disponibilidade antes do alerta ----
+# Filtro defensivo para reduzir imóveis que aparecem como vendidos/off-market
+# quando conferidos no Zillow. Não faz scraping do Zillow; usa dados estruturados
+# da fonte e segura anúncios antigos/suspeitos antes do WhatsApp.
+availability:
+  require_status_active: true
+  allowed_statuses: [Active]
+  reject_removed: true
+  max_last_seen_hours: 36
+  max_listed_age_days: 3
+  require_mls_number: true
 
 # ---- Resumo diário por e-mail ----
 summary:
@@ -45,33 +75,43 @@ tiers:
   - name: baixo_padrao
     label: "Baixo padrão"
     max_price: 50000           # terrenos até US$ 50.000
-    # Ex.: casa menor e revenda mais modesta neste segmento:
-    # build:
-    #   living_area_sqft: 1600
-    #   resale_price_per_sqft: 280
+    build:
+      living_area_sqft: 1400
+      bedrooms: 3
+      bathrooms: 2
+      construction_cost_per_sqft: 120
+      resale_price_per_sqft: 225   # ARV crítico aproximado: US$ 315.000
+    rules:
+      max_land_price: 50000
+      target_margin: 0.18
 
   - name: medio_padrao
     label: "Médio padrão"
-    max_price: 300000          # terrenos ou casas até US$ 300.000
-    # build:
-    #   living_area_sqft: 2400
-    #   resale_price_per_sqft: 340
-    # rules:
-    #   target_margin: 0.16
+    max_price: 300000          # oportunidades até US$ 300.000 entram em outra régua
+    build:
+      living_area_sqft: 2200
+      bedrooms: 4
+      bathrooms: 3
+      construction_cost_per_sqft: 165
+      resale_price_per_sqft: 330
+    rules:
+      target_margin: 0.18
 
   - name: alto_padrao
     label: "Alto padrão"
-    max_price: null            # sem teto (acima de US$ 300.000)
-    # ALTO PADRÃO tem muito mais variáveis — preencha conforme for definindo:
-    # build:
-    #   living_area_sqft: 4000
-    #   construction_cost_per_sqft: 250
-    #   resale_price_per_sqft: 520
-    # costs:
-    #   selling_cost_pct: 0.08
-    # rules:
-    #   target_margin: 0.22
-    #   min_lot_size_sqft: 12000
+    max_price: null            # acima de US$ 300.000
+    build:
+      living_area_sqft: 4000
+      bedrooms: 5
+      bathrooms: 4
+      construction_cost_per_sqft: 250
+      resale_price_per_sqft: 520
+    costs:
+      selling_cost_pct: 0.08
+    rules:
+      target_margin: 0.22
+      min_lot_size_sqft: 12000
+      manual_review_only: true # alto padrão depende de bairro/demanda, não só do número
 
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:
@@ -82,23 +122,51 @@ output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
 
 # ============================================================================
-#  FONTE DE DADOS — aponte para a API que você assinar no RapidAPI.
-#  Cada API tem nomes de campo um pouco diferentes; aqui você mapeia tudo
-#  SEM precisar mexer no código. Use --mock para testar sem chave nenhuma.
+#  FONTE DE DADOS — use RentCast para teste/produção leve, RapidAPI como fallback.
+#  Use --mock para testar sem chave nenhuma.
 # ============================================================================
 datasource:
-  provider: realtor_rapidapi      # "realtor_rapidapi" ou "mock"
+  provider: rentcast      # "rentcast", "realtor_rapidapi" ou "mock"
+
+  rentcast:
+    # ----------------------------------------------------------------------
+    #  API oficial da RentCast.
+    #  Cole a chave em RENTCAST_API_KEY no .env.
+    #  Endpoint: GET /listings/sale
+    # ----------------------------------------------------------------------
+    base_url: https://api.rentcast.io/v1
+    search_path: /listings/sale
+    property_type: Land
+    status: Active
+    limit: 100
+    max_pages: 1
+    timeout_seconds: 60
+    retries: 2
+    retry_sleep_seconds: 3
+
+    # Parâmetros opcionais aceitos pela RentCast. Para capturar oportunidades
+    # recentes sem gastar chamadas demais, comece com poucos dias e ajuste.
+    params:
+      daysOld: "0-3"
+
+    # Para a primeira peneira usamos ~50 milhas / 80 km de Orlando.
+    # Se voltar para 180 km, reative pontos sobrepostos ao redor da região.
+    search_points:
+      - name: Orlando
+        lat: 28.5384
+        lng: -81.3789
+        radius_miles: 50
 
   rapidapi:
     # ----------------------------------------------------------------------
-    #  Configurado para a API "Realty in US" (espelho da Realtor.com).
-    #  Assine em: https://rapidapi.com/apidojo/api/realty-in-us
+    #  Configurado para a API "US Real Estate Listings" by apimaker.
     #  Cole a chave em RAPIDAPI_KEY no .env.
     # ----------------------------------------------------------------------
-    host: realty-in-us.p.rapidapi.com
-    base_url: https://realty-in-us.p.rapidapi.com
+    host: us-real-estate-listings.p.rapidapi.com
+    base_url: https://us-real-estate-listings.p.rapidapi.com
     method: GET
-    search_path: /properties/v2/list-for-sale
+    search_path: /forSale
+    zip_param: zip
 
     # Parâmetros da query. {lat} {lng} {radius_km} {radius_miles} são
     # preenchidos em tempo de execução.
@@ -106,19 +174,14 @@ datasource:
     # IMPORTANTE sobre o RAIO: esta API costuma limitar 'radius' a ~50 milhas
     # (~80 km) a partir de um postal_code. Por isso usamos um CEP central de
     # Orlando + raio 50, e o GEOFILTRO do próprio sistema (search.radius_km =
-    # 150) faz o corte preciso. Para cobrir os 150 km inteiros, dá para buscar
+    # 180) faz o corte preciso. Para cobrir os 180 km inteiros, dá para buscar
     # em vários CEPs centrais e juntar — me peça que eu adiciono.
     params:
-      postal_code: "32801"        # CEP padrão (usado se postal_codes abaixo ficar vazio)
-      radius: "50"                # milhas (limite típico da API)
-      prop_type: land             # só terrenos
-      sort: newest                # mais recentes primeiro
-      offset: "0"
-      limit: "50"
+      zip: "32801"                # CEP padrão (usado se postal_codes abaixo ficar vazio)
 
-    # ---- Busca multi-CEP (cobre os ~150 km ao redor de Orlando) ----
+    # ---- Busca multi-CEP (cobre os ~180 km ao redor de Orlando) ----
     # O sistema consulta CADA CEP (raio 50 mi) e junta os resultados, removendo
-    # duplicados. O geofiltro (search.radius_km = 150) faz o corte fino no fim.
+    # duplicados. O geofiltro (search.radius_km = 180) faz o corte fino no fim.
     postal_codes:
       - "32801"   # Orlando (centro)
       - "34711"   # Clermont (oeste)
@@ -134,20 +197,22 @@ datasource:
     # Onde está a LISTA de resultados no JSON da resposta (tenta na ordem).
     # Inclui caminhos das versões v2 e v3 da API para robustez.
     results_paths:
-      - properties                 # Realty in US v2
+      - data
+      - listings
+      - results
+      - properties
       - data.home_search.results   # schema v3 / Realtor
       - data.results
-      - results
-      - data
 
     # Mapeamento campo_da_listagem -> caminho(s) no item (tenta na ordem).
     fields:
-      id:            [property_id, listing_id, id]
-      price:         [price, list_price]
+      id:            [property_id, zpid, listing_id, id, mlsId, mls.id]
+      price:         [price, list_price, listPrice, unformattedPrice]
       lat:           [address.lat, location.address.coordinate.lat, coordinate.lat, latitude, lat]
-      lng:           [address.lon, location.address.coordinate.lon, coordinate.lng, longitude, lng, lon]
-      address:       [address.line, location.address.line, address, full_address]
-      lot_size_sqft: [lot_size.size, lot_size.sqft, lot_sqft, lotSize]
+      lng:           [address.lon, address.lng, location.address.coordinate.lon, coordinate.lng, longitude, lng, lon]
+      address:       [address.line, location.address.line, address.streetAddress, streetAddress, address, full_address]
+      lot_size_sqft: [lot_size.size, lot_size.sqft, lot_sqft, lotSize, lotAreaValue]
+      property_type: [propertyType, property_type, homeType, type]
       zoning:        [zoning, zoning_description]
-      listing_date:  [list_date, listing_date, listed_date]
-      url:           [rdc_web_url, href, permalink, url]
+      listing_date:  [list_date, listing_date, listed_date, datePostedString]
+      url:           [detailUrl, hdpUrl, rdc_web_url, href, permalink, url]

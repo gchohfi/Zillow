@@ -1,9 +1,10 @@
-"""Envio de alertas: console (sempre), e-mail (SMTP) e Telegram — ambos opcionais."""
+"""Envio de alertas: console (sempre), e-mail, Telegram e WhatsApp — opcionais."""
 
 from __future__ import annotations
 
 import smtplib
 from email.mime.text import MIMEText
+from urllib.parse import quote_plus
 
 import requests
 
@@ -19,8 +20,10 @@ def _format_result(r: ViabilityResult) -> str:
         f"    Preço terreno : US$ {r.land_cost:,.0f}",
         f"    ARV (revenda) : US$ {r.arv:,.0f}",
         f"    Custo total   : US$ {r.total_cost:,.0f}",
+        f"    Closing compra: US$ {r.purchase_closing_cost:,.0f}",
+        f"    Contingência  : US$ {r.contingency_cost:,.0f}",
         f"    Lucro estimado: US$ {r.profit:,.0f}  (margem {r.margin:.1%})",
-        f"    Terreno/ARV   : {r.land_to_arv:.1%}",
+        f"    Terreno/invest: {r.land_to_total_investment:.1%}",
         f"    Distância     : {dist} de Orlando",
         f"    Link          : {L.url or '(sem link)'}",
         "    " + " | ".join(r.reasons),
@@ -37,17 +40,90 @@ def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
     body = "\n\n".join(_format_result(r) for r in results)
     header = f"{len(results)} oportunidade(s) viável(is) de terreno perto de Orlando:\n"
     subject = f"[Orlando Land] {len(results)} oportunidade(s) viável(is)"
-    send_message(subject, header + "\n" + body, dry_run=dry_run)
+    full_message = header + "\n" + body
+    print(full_message)
+    if dry_run:
+        print("\n[dry-run] envios externos não foram realizados.")
+        return
+    _maybe_send_email(subject, full_message)
+    _maybe_send_telegram(f"{subject}\n\n{full_message}")
+    _maybe_send_zapi_whatsapp_results(results)
 
 
 def send_message(subject: str, body: str, dry_run: bool = False) -> None:
-    """Mostra no console e dispara para os canais configurados (e-mail/Telegram)."""
+    """Mostra no console e dispara para os canais configurados."""
     print(body)
     if dry_run:
         print("\n[dry-run] envios externos não foram realizados.")
         return
     _maybe_send_email(subject, body)
     _maybe_send_telegram(f"{subject}\n\n{body}")
+    _maybe_send_zapi_whatsapp(f"{subject}\n\n{body}")
+
+
+def _format_whatsapp_result(r: ViabilityResult) -> str:
+    listing = r.listing
+    raw = listing.raw or {}
+    address = listing.address or listing.id
+    dist = f"{listing.distance_km:.0f} km" if listing.distance_km is not None else "?"
+    maps_query = quote_plus(address) if address else quote_plus(f"{listing.lat},{listing.lng}")
+    zillow_query = quote_plus(address)
+    realtor_query = quote_plus(address)
+
+    lines = [
+        "Oportunidade Orlando Land",
+        "",
+        address,
+        f"Segmento: {r.tier or 'n/d'}",
+        f"Terreno: US$ {r.land_cost:,.0f}",
+        f"ARV estimado: US$ {r.arv:,.0f}",
+        f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
+        f"Custo total: US$ {r.total_cost:,.0f}",
+        f"Lucro estimado: US$ {r.profit:,.0f}",
+        f"Margem: {r.margin:.1%}",
+        f"Terreno/invest: {r.land_to_total_investment:.1%}",
+        f"Distancia: {dist} de Orlando",
+    ]
+    mls = " ".join(str(part) for part in [raw.get("mlsName"), raw.get("mlsNumber")] if part)
+    if mls:
+        lines.append(f"MLS: {mls}")
+    if raw.get("status"):
+        lines.append(f"Status fonte: {raw.get('status')}")
+    if raw.get("lastSeenDate"):
+        lines.append(f"Fonte viu em: {str(raw.get('lastSeenDate'))[:10]}")
+    if r.arv_comps_count:
+        detail = f"Comps ARV: {r.arv_comps_count}"
+        if r.arv_confidence:
+            detail += f" / confiança {r.arv_confidence}"
+        lines.append(detail)
+    agent = raw.get("listingAgent") or {}
+    if isinstance(agent, dict) and (agent.get("name") or agent.get("phone")):
+        lines.append(f"Agente: {' / '.join(str(v) for v in [agent.get('name'), agent.get('phone')] if v)}")
+    if listing.url:
+        lines.extend(["", f"Link original: {listing.url}"])
+    lines.extend([
+        "",
+        f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
+        f"Zillow: https://www.zillow.com/homes/{zillow_query}_rb/",
+        f"Realtor: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+    ])
+    return "\n".join(lines)
+
+
+def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
+    max_messages = int(env("WHATSAPP_MAX_OPPORTUNITIES", "10") or 10)
+    ranked = sorted(results, key=lambda r: (r.margin, r.profit), reverse=True)
+    selected = ranked[:max_messages]
+    if not selected:
+        return
+
+    if len(results) > max_messages:
+        _maybe_send_zapi_whatsapp(
+            f"[Orlando Land] {len(results)} oportunidades viaveis. "
+            f"Enviando as {max_messages} melhores por margem/lucro."
+        )
+    for result in selected:
+        _maybe_send_zapi_whatsapp(_format_whatsapp_result(result))
 
 
 def _maybe_send_email(subject: str, message: str) -> None:
@@ -88,4 +164,33 @@ def _maybe_send_telegram(message: str) -> None:
         resp.raise_for_status()
         print("[telegram] enviado")
     except Exception as exc:  # noqa: BLE001
-        print(f"[telegram] falhou: {exc}")
+        print(f"[telegram] falhou: {type(exc).__name__}")
+
+
+def _maybe_send_zapi_whatsapp(message: str) -> None:
+    instance_id = env("ZAPI_INSTANCE_ID")
+    instance_token = env("ZAPI_INSTANCE_TOKEN")
+    client_token = env("ZAPI_CLIENT_TOKEN")
+    phone = env("ZAPI_PHONE")
+    if not all([instance_id, instance_token, phone]):
+        return
+
+    url = (
+        "https://api.z-api.io/instances/"
+        f"{instance_id}/token/{instance_token}/send-text"
+    )
+    headers = {"Content-Type": "application/json"}
+    if client_token:
+        headers["Client-Token"] = client_token
+
+    try:
+        resp = requests.post(
+            url,
+            headers=headers,
+            json={"phone": phone, "message": message},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        print(f"[whatsapp] enviado para {phone}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[whatsapp] falhou: {type(exc).__name__}")

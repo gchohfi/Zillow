@@ -2,8 +2,11 @@
 __pycache__/
 *.pyc
 .env
+.env.*
 *.db
+*.db-*
 *.sqlite
-run.log
+*.sqlite-*
+*.log
 opportunities.csv
 .pytest_cache/

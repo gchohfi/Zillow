@@ -5,16 +5,24 @@ from __future__ import annotations
 import argparse
 
 from .config import Config
+from .availability import check_availability
+from .arv import enrich_arv
 from .datasource import get_source
 from .geo import within_radius
+from .notifier import notify, send_message
+from .reporter import append_results
 from .storage import SeenStore
 from .viability import evaluate
 
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
     cfg = Config.load()
-    source = get_source(cfg, use_mock)
-    store = SeenStore(cfg.db_path)
+    try:
+        source = get_source(cfg, use_mock)
+    except RuntimeError as exc:
+        print(f"[config] {exc}")
+        return
+    store = SeenStore(":memory:" if use_mock else cfg.db_path)
 
     search = cfg.search
     center_lat, center_lng = search["center_lat"], search["center_lng"]
@@ -25,9 +33,19 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
 
     listings = source.fetch_new_land_listings(cfg)
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
+    source_errors = getattr(source, "errors", [])
+    if not listings and source_errors:
+        send_message(
+            "[Orlando Land] Falha na fonte de dados",
+            "A RentCast nao retornou listagens nesta rodada.\n\n"
+            + "\n".join(f"- {err}" for err in source_errors[:3]),
+            dry_run=dry_run,
+        )
+        store.close()
+        return
 
     viable_new = []
-    n_out_of_radius = n_already_seen = n_not_viable = 0
+    n_out_of_radius = n_already_seen = n_unavailable = n_not_viable = n_failed = 0
 
     for listing in listings:
         inside, dist = within_radius(
@@ -38,27 +56,44 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             n_out_of_radius += 1
             continue
 
-        if not store.is_new(listing.id):
+        if not store.is_new(listing):
             n_already_seen += 1
             continue
-        store.mark_seen(listing)   # marca como visto (mesmo se não for viável)
 
-        result = evaluate(listing, cfg)
+        availability_reasons = []
+        if not use_mock:
+            is_available, availability_reasons = check_availability(listing, cfg)
+            if not is_available:
+                n_unavailable += 1
+                continue
+
+        if not use_mock:
+            enrich_arv(listing, cfg)
+
+        try:
+            result = evaluate(listing, cfg)
+        except Exception as exc:  # noqa: BLE001
+            n_failed += 1
+            print(f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: {exc}")
+            continue
+        result.reasons.extend(availability_reasons)
+
+        store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
             viable_new.append(result)
         else:
             n_not_viable += 1
 
     print(f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
-          f"não viáveis: {n_not_viable} | viáveis NOVOS: {len(viable_new)}")
+          f"indisponíveis/provavelmente antigas: {n_unavailable} | "
+          f"não viáveis: {n_not_viable} | falhas: {n_failed} | "
+          f"viáveis NOVOS: {len(viable_new)}")
 
     # Grava as oportunidades viáveis na planilha CSV.
     csv_path = cfg.raw.get("output", {}).get("csv_path")
     if csv_path and viable_new:
-        from .reporter import append_results
         append_results(viable_new, csv_path)
 
-    from .notifier import notify
     notify(viable_new, dry_run=dry_run)
 
     store.close()
