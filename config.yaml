@@ -6,7 +6,7 @@
 search:
   center_lat: 28.5384          # Orlando, FL
   center_lng: -81.3789
-  radius_km: 180               # raio de busca
+  radius_km: 80                # raio de busca inicial: ~50 milhas de Orlando
   property_types:              # tipos de listagem que interessam
     - land
     - lots-land
@@ -27,12 +27,39 @@ costs:
   carrying_months: 12          # prazo estimado do projeto para custo de carrego
   selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
 
+# ---- ARV por comps reais (RentCast AVM) ----
+# Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
+# Se a AVM falhar ou tiver poucos comps, o sistema volta para resale_price_per_sqft.
+arv:
+  enabled: true
+  provider: rentcast_avm
+  path: /avm/value
+  property_type: Single Family
+  max_radius_miles: 2
+  days_old: 180
+  comp_count: 10
+  min_comps: 3
+  timeout_seconds: 20
+
 # ---- Regras de corte (o que é "viável") ----
 rules:
   target_margin: 0.18          # margem líquida mínima (lucro / ARV)
+  max_land_price: 0            # teto global desligado; cada segmento define o seu
   max_land_to_total_investment_pct: 0.27  # terreno não pode passar de 27% do investimento total
   require_residential_zoning: true   # exige zoneamento residencial quando o dado existir
   min_lot_size_sqft: 5000      # lote mínimo em sqft (0 ou nulo = sem mínimo)
+
+# ---- Disponibilidade antes do alerta ----
+# Filtro defensivo para reduzir imóveis que aparecem como vendidos/off-market
+# quando conferidos no Zillow. Não faz scraping do Zillow; usa dados estruturados
+# da fonte e segura anúncios antigos/suspeitos antes do WhatsApp.
+availability:
+  require_status_active: true
+  allowed_statuses: [Active]
+  reject_removed: true
+  max_last_seen_hours: 36
+  max_listed_age_days: 3
+  require_mls_number: true
 
 # ---- Resumo diário por e-mail ----
 summary:
@@ -48,33 +75,43 @@ tiers:
   - name: baixo_padrao
     label: "Baixo padrão"
     max_price: 50000           # terrenos até US$ 50.000
-    # Ex.: casa menor e revenda mais modesta neste segmento:
-    # build:
-    #   living_area_sqft: 1600
-    #   resale_price_per_sqft: 280
+    build:
+      living_area_sqft: 1400
+      bedrooms: 3
+      bathrooms: 2
+      construction_cost_per_sqft: 120
+      resale_price_per_sqft: 225   # ARV crítico aproximado: US$ 315.000
+    rules:
+      max_land_price: 50000
+      target_margin: 0.18
 
   - name: medio_padrao
     label: "Médio padrão"
-    max_price: 300000          # terrenos ou casas até US$ 300.000
-    # build:
-    #   living_area_sqft: 2400
-    #   resale_price_per_sqft: 340
-    # rules:
-    #   target_margin: 0.16
+    max_price: 300000          # oportunidades até US$ 300.000 entram em outra régua
+    build:
+      living_area_sqft: 2200
+      bedrooms: 4
+      bathrooms: 3
+      construction_cost_per_sqft: 165
+      resale_price_per_sqft: 330
+    rules:
+      target_margin: 0.18
 
   - name: alto_padrao
     label: "Alto padrão"
-    max_price: null            # sem teto (acima de US$ 300.000)
-    # ALTO PADRÃO tem muito mais variáveis — preencha conforme for definindo:
-    # build:
-    #   living_area_sqft: 4000
-    #   construction_cost_per_sqft: 250
-    #   resale_price_per_sqft: 520
-    # costs:
-    #   selling_cost_pct: 0.08
-    # rules:
-    #   target_margin: 0.22
-    #   min_lot_size_sqft: 12000
+    max_price: null            # acima de US$ 300.000
+    build:
+      living_area_sqft: 4000
+      bedrooms: 5
+      bathrooms: 4
+      construction_cost_per_sqft: 250
+      resale_price_per_sqft: 520
+    costs:
+      selling_cost_pct: 0.08
+    rules:
+      target_margin: 0.22
+      min_lot_size_sqft: 12000
+      manual_review_only: true # alto padrão depende de bairro/demanda, não só do número
 
 # ---- Banco de dados (memória do que já foi visto) ----
 storage:
@@ -101,37 +138,24 @@ datasource:
     search_path: /listings/sale
     property_type: Land
     status: Active
-    limit: 500
+    limit: 100
     max_pages: 1
+    timeout_seconds: 60
+    retries: 2
+    retry_sleep_seconds: 3
 
     # Parâmetros opcionais aceitos pela RentCast. Para capturar oportunidades
     # recentes sem gastar chamadas demais, comece com poucos dias e ajuste.
     params:
-      daysOld: "1-14"
+      daysOld: "0-3"
 
-    # A RentCast limita radius a 100 milhas. Estes pontos sobrepostos ajudam a
-    # cobrir o raio de 180 km; o geofiltro do sistema faz o corte final exato.
+    # Para a primeira peneira usamos ~50 milhas / 80 km de Orlando.
+    # Se voltar para 180 km, reative pontos sobrepostos ao redor da região.
     search_points:
       - name: Orlando
         lat: 28.5384
         lng: -81.3789
-        radius_miles: 100
-      - name: Clermont
-        lat: 28.5494
-        lng: -81.7729
-        radius_miles: 100
-      - name: Daytona Beach
-        lat: 29.2108
-        lng: -81.0228
-        radius_miles: 100
-      - name: Melbourne
-        lat: 28.0836
-        lng: -80.6081
-        radius_miles: 100
-      - name: Lakeland
-        lat: 28.0395
-        lng: -81.9498
-        radius_miles: 100
+        radius_miles: 50
 
   rapidapi:
     # ----------------------------------------------------------------------

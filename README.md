@@ -1,11 +1,12 @@
 # Orlando Land Detector 🏗️
 
 Detector de oportunidades de **terreno para spec build** (comprar terreno → construir casa → vender)
-num raio de **180 km de Orlando, FL**, com cálculo automático de viabilidade financeira.
+num raio inicial de **80 km de Orlando, FL**, com cálculo automático de viabilidade financeira.
 
 O sistema busca novas listagens de terreno, filtra por distância, lembra o que já viu
-(para te avisar só do que é **novo**), aplica a **sua fórmula de viabilidade** e te alerta
-quando aparece algo que vale a pena.
+(para te avisar só do que é **novo**), estima o ARV com comps da RentCast quando
+disponível, aplica a **sua fórmula de viabilidade** e te alerta quando aparece
+algo que vale a pena.
 
 ---
 
@@ -13,9 +14,8 @@ quando aparece algo que vale a pena.
 
 ```
   Fonte de dados        Geofiltro          Novidade           Viabilidade         Alerta
- (listagens novas) ──▶ (≤180km de   ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
+ (listagens novas) ──▶ (≤80km de    ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
                         Orlando)          guarda no DB)        viável?)             Telegram /
-                                                                                   WhatsApp /
                                                                                    console)
 ```
 
@@ -115,12 +115,37 @@ No cron, por exemplo todo dia às 8h:
 `config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em
 sqft). Use `0` para desligar. Listagens sem o dado de lote passam com um aviso.
 
-### Cobertura dos 180 km
+### ARV por comps reais
 
-A RentCast limita o raio por busca a **100 milhas**, então o sistema consulta
-**vários pontos ao redor de Orlando** (lista em
-`config.yaml → datasource.rentcast.search_points`), junta os resultados, remove
-duplicados, e o geofiltro de 180 km faz o corte final.
+Antes de calcular a viabilidade, o sistema tenta chamar o endpoint RentCast AVM
+para estimar o valor da casa pronta hipotética (`Single Family`) com as premissas
+do segmento: área, quartos e banheiros. Se a AVM retornar valor e comps
+suficientes, esse ARV substitui o preço fixo por sqft do `config.yaml`. Se a
+chamada falhar ou vier fraca, o sistema volta para a premissa fixa e marca isso
+no alerta.
+
+### Cobertura dos 80 km
+
+A primeira peneira busca terrenos até **80 km** de Orlando. Os tetos de preço
+ficam por segmento em `config.yaml → tiers`: baixo padrão até US$ 50.000,
+médio padrão até US$ 300.000, e alto padrão acima disso fica marcado para
+análise manual de localização.
+Se quiser voltar para uma área maior, aumente `search.radius_km` e reative
+pontos sobrepostos em `config.yaml → datasource.rentcast.search_points`.
+
+### Alertas por WhatsApp
+
+O alerta por WhatsApp manda uma mensagem curta por oportunidade com endereço,
+segmento, preço, ARV, lucro, margem, distância e links automáticos para Google
+Maps, Zillow e Realtor. Se a fonte trouxer o link original da listagem, ele
+também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
+oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
+
+Antes do WhatsApp, o sistema faz uma checagem de disponibilidade com dados
+estruturados da fonte: status ativo, sem `removedDate`, visto recentemente,
+listado há poucos dias e com MLS. Isso reduz casos em que o endereço aparece no
+Zillow como vendido/off-market. O Zillow continua como link de conferência, não
+como fonte automática por scraping.
 
 Para economizar chamadas no primeiro teste, o padrão busca listagens com
 `daysOld: "1-14"` e apenas a primeira página (`max_pages: 1`). Esses valores são
@@ -140,7 +165,7 @@ pytest
 Para cada terreno, o motor calcula:
 
 ```
-ARV (valor de revenda da casa pronta)   = preço_revenda_por_sqft × área_construída
+ARV (valor de revenda da casa pronta)   = RentCast AVM/comps, ou fallback preço_revenda_por_sqft × área
 − Preço do terreno (o preço da listagem)
 − Custo de construção                    = custo_construção_por_sqft × área_construída
 − Custos "soft" (projeto, licenças)      = soft_cost_pct × custo_construção
@@ -157,6 +182,8 @@ Terreno/investimento total = Preço do terreno / Custo total estimado
 **Regras de corte** (ajustáveis em `config.yaml`) que decidem viável / não viável:
 
 - Terreno deve ser **≤ `max_land_to_total_investment_pct`** do investimento total, hoje 27%
+- No baixo padrão, preço do terreno deve ser **≤ `max_land_price`**, hoje US$ 50.000
+- Alto padrão não é aprovado automaticamente: exige análise de bairro/demanda
 - Margem líquida **≥ `target_margin`** (ex.: 18%)
 - Listagens com preço zerado ou inválido são descartadas antes de gerar alerta
 - Zoneamento deve permitir residencial (quando o dado existir)

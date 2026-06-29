@@ -22,6 +22,10 @@ class Listing:
     url: str = ""
     source: str = ""
     distance_km: Optional[float] = None   # preenchido pelo geofiltro
+    arv_estimate: Optional[float] = None   # ARV da casa pronta via comps/AVM
+    arv_source: Optional[str] = None
+    arv_comps_count: Optional[int] = None
+    arv_confidence: Optional[str] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -46,3 +50,6 @@ class ViabilityResult:
     is_viable: bool
     tier: str = ""                                      # segmento: baixo/médio/alto padrão
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou
+    arv_source: str = "config"
+    arv_comps_count: Optional[int] = None
+    arv_confidence: Optional[str] = None

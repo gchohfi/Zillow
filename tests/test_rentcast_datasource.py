@@ -79,3 +79,35 @@ def test_rentcast_fetches_land_with_api_key_and_pagination(monkeypatch):
     assert calls[0]["params"]["limit"] == 1
     assert calls[0]["params"]["offset"] == 0
     assert calls[1]["params"]["offset"] == 1
+
+
+def test_rentcast_retries_transient_timeout(monkeypatch):
+    monkeypatch.setenv("RENTCAST_API_KEY", "test-key")
+    calls = []
+
+    def fake_get(url, params, headers, timeout):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise __import__("requests").ReadTimeout("slow")
+        return _Response([{"id": "a", "price": 90000, "latitude": 28.5, "longitude": -81.3}])
+
+    monkeypatch.setattr("src.datasource.requests.get", fake_get)
+    monkeypatch.setattr("src.datasource.time.sleep", lambda _seconds: None)
+    cfg = Config(raw={
+        "search": {"center_lat": 28.5384, "center_lng": -81.3789, "radius_km": 80},
+        "datasource": {},
+    })
+    source = RentCastSource({
+        "rentcast": {
+            "limit": 100,
+            "max_pages": 1,
+            "timeout_seconds": 60,
+            "retries": 1,
+            "search_points": [{"name": "Orlando", "lat": 28.5384, "lng": -81.3789}],
+        }
+    })
+
+    listings = source.fetch_new_land_listings(cfg)
+
+    assert [listing.id for listing in listings] == ["a"]
+    assert calls == [60, 60]

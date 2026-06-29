@@ -18,6 +18,7 @@ def _cfg() -> Config:
         "costs": {"soft_cost_pct": 0.10, "carrying_cost_pct": 0.06, "selling_cost_pct": 0.07},
         "rules": {
             "target_margin": 0.18,
+            "max_land_price": 0,
             "max_land_to_total_investment_pct": 0.27,
             "require_residential_zoning": True,
         },
@@ -43,6 +44,26 @@ def test_cheap_lot_is_viable():
     assert r.margin >= 0.18
     assert r.land_to_total_investment <= 0.27
     assert r.land_to_total_investment == r.land_cost / r.total_cost
+    assert r.arv_source == "config"
+
+
+def test_listing_arv_estimate_overrides_config_arv():
+    lot = Listing(
+        id="arv",
+        price=95_000,
+        lat=28.41,
+        lng=-81.50,
+        zoning="residential",
+        arv_estimate=500_000,
+        arv_source="rentcast_avm",
+        arv_comps_count=5,
+        arv_confidence="high",
+    )
+    r = evaluate(lot, _cfg())
+    assert r.arv == 500_000
+    assert r.arv_source == "rentcast_avm"
+    assert r.arv_comps_count == 5
+    assert any("ARV por comps RentCast" in reason for reason in r.reasons)
 
 
 def test_zero_price_is_rejected():
@@ -59,6 +80,27 @@ def test_expensive_lot_fails_margin_or_ratio():
     lot = Listing(id="b", price=240_000, lat=28.6, lng=-81.2, zoning="residential")
     r = evaluate(lot, _cfg())
     assert not r.is_viable
+
+
+def test_max_land_price_rejects_otherwise_viable_lot():
+    cfg = _cfg()
+    cfg.raw["rules"]["max_land_price"] = 50_000
+    lot = Listing(id="price-cap", price=95_000, lat=28.41, lng=-81.50, zoning="residential")
+    r = evaluate(lot, cfg)
+    assert not r.is_viable
+    assert any("teto US$ 50,000" in reason for reason in r.reasons)
+
+
+def test_manual_review_only_segment_never_auto_approves():
+    cfg = _cfg()
+    cfg.raw["tiers"] = [
+        {"name": "alto_padrao", "label": "Alto padrão", "max_price": None,
+         "rules": {"manual_review_only": True}},
+    ]
+    lot = Listing(id="high", price=95_000, lat=28.41, lng=-81.50, zoning="residential")
+    r = evaluate(lot, cfg)
+    assert not r.is_viable
+    assert any("análise manual" in reason for reason in r.reasons)
 
 
 def test_commercial_zoning_rejected():
@@ -104,6 +146,9 @@ def test_real_config_evaluates_mock_listings():
     listings = MockDataSource().fetch_new_land_listings(cfg)
     results = [evaluate(listing, cfg) for listing in listings if listing.price > 0]
     assert results
-    assert cfg.search["radius_km"] == 180
+    assert cfg.search["radius_km"] == 80
+    assert cfg.rules["max_land_price"] == 0
+    assert cfg.raw["tiers"][0]["rules"]["max_land_price"] == 50000
+    assert cfg.raw["tiers"][2]["rules"]["manual_review_only"] is True
     assert "max_land_to_total_investment_pct" in cfg.rules
     assert all(hasattr(result, "land_to_total_investment") for result in results)

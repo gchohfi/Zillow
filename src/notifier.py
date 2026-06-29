@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import smtplib
 from email.mime.text import MIMEText
+from urllib.parse import quote_plus
 
 import requests
 
@@ -39,7 +40,14 @@ def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
     body = "\n\n".join(_format_result(r) for r in results)
     header = f"{len(results)} oportunidade(s) viável(is) de terreno perto de Orlando:\n"
     subject = f"[Orlando Land] {len(results)} oportunidade(s) viável(is)"
-    send_message(subject, header + "\n" + body, dry_run=dry_run)
+    full_message = header + "\n" + body
+    print(full_message)
+    if dry_run:
+        print("\n[dry-run] envios externos não foram realizados.")
+        return
+    _maybe_send_email(subject, full_message)
+    _maybe_send_telegram(f"{subject}\n\n{full_message}")
+    _maybe_send_zapi_whatsapp_results(results)
 
 
 def send_message(subject: str, body: str, dry_run: bool = False) -> None:
@@ -51,6 +59,71 @@ def send_message(subject: str, body: str, dry_run: bool = False) -> None:
     _maybe_send_email(subject, body)
     _maybe_send_telegram(f"{subject}\n\n{body}")
     _maybe_send_zapi_whatsapp(f"{subject}\n\n{body}")
+
+
+def _format_whatsapp_result(r: ViabilityResult) -> str:
+    listing = r.listing
+    raw = listing.raw or {}
+    address = listing.address or listing.id
+    dist = f"{listing.distance_km:.0f} km" if listing.distance_km is not None else "?"
+    maps_query = quote_plus(address) if address else quote_plus(f"{listing.lat},{listing.lng}")
+    zillow_query = quote_plus(address)
+    realtor_query = quote_plus(address)
+
+    lines = [
+        "Oportunidade Orlando Land",
+        "",
+        address,
+        f"Segmento: {r.tier or 'n/d'}",
+        f"Terreno: US$ {r.land_cost:,.0f}",
+        f"ARV estimado: US$ {r.arv:,.0f}",
+        f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
+        f"Custo total: US$ {r.total_cost:,.0f}",
+        f"Lucro estimado: US$ {r.profit:,.0f}",
+        f"Margem: {r.margin:.1%}",
+        f"Terreno/invest: {r.land_to_total_investment:.1%}",
+        f"Distancia: {dist} de Orlando",
+    ]
+    mls = " ".join(str(part) for part in [raw.get("mlsName"), raw.get("mlsNumber")] if part)
+    if mls:
+        lines.append(f"MLS: {mls}")
+    if raw.get("status"):
+        lines.append(f"Status fonte: {raw.get('status')}")
+    if raw.get("lastSeenDate"):
+        lines.append(f"Fonte viu em: {str(raw.get('lastSeenDate'))[:10]}")
+    if r.arv_comps_count:
+        detail = f"Comps ARV: {r.arv_comps_count}"
+        if r.arv_confidence:
+            detail += f" / confiança {r.arv_confidence}"
+        lines.append(detail)
+    agent = raw.get("listingAgent") or {}
+    if isinstance(agent, dict) and (agent.get("name") or agent.get("phone")):
+        lines.append(f"Agente: {' / '.join(str(v) for v in [agent.get('name'), agent.get('phone')] if v)}")
+    if listing.url:
+        lines.extend(["", f"Link original: {listing.url}"])
+    lines.extend([
+        "",
+        f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
+        f"Zillow: https://www.zillow.com/homes/{zillow_query}_rb/",
+        f"Realtor: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+    ])
+    return "\n".join(lines)
+
+
+def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
+    max_messages = int(env("WHATSAPP_MAX_OPPORTUNITIES", "10") or 10)
+    ranked = sorted(results, key=lambda r: (r.margin, r.profit), reverse=True)
+    selected = ranked[:max_messages]
+    if not selected:
+        return
+
+    if len(results) > max_messages:
+        _maybe_send_zapi_whatsapp(
+            f"[Orlando Land] {len(results)} oportunidades viaveis. "
+            f"Enviando as {max_messages} melhores por margem/lucro."
+        )
+    for result in selected:
+        _maybe_send_zapi_whatsapp(_format_whatsapp_result(result))
 
 
 def _maybe_send_email(subject: str, message: str) -> None:

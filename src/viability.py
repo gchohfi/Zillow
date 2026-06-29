@@ -36,24 +36,32 @@ def _merged(base: dict, override: dict | None) -> dict:
     return {**base, **override}
 
 
+def resolve_parameters(listing: Listing, cfg: Config) -> tuple[str, dict, dict, dict]:
+    """Resolve segmento e parâmetros efetivos para uma listagem."""
+    tier = _resolve_tier(float(listing.price), cfg)
+    tier_label = tier.get("label") or tier.get("name") or ""
+
+    build = _merged(cfg.build, tier.get("build"))
+    costs = _merged(cfg.costs, tier.get("costs"))
+    rules = _merged(cfg.rules, tier.get("rules"))
+    return tier_label, build, costs, rules
+
+
 def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     """Aplica a fórmula de spec build (com parâmetros do segmento) e diz se é viável."""
     land_cost = float(listing.price)
     if land_cost <= 0:
         raise ValueError(f"preco invalido para a listagem {listing.id!r}: {land_cost}")
 
-    tier = _resolve_tier(float(listing.price), cfg)
-    tier_label = tier.get("label") or tier.get("name") or ""
-
     # Parâmetros base, sobrescritos pelos do segmento quando existirem.
-    build = _merged(cfg.build, tier.get("build"))
-    costs = _merged(cfg.costs, tier.get("costs"))
-    rules = _merged(cfg.rules, tier.get("rules"))
+    tier_label, build, costs, rules = resolve_parameters(listing, cfg)
 
     living_area = float(build["living_area_sqft"])
 
     # --- Componentes da fórmula ---
-    arv = float(build["resale_price_per_sqft"]) * living_area
+    config_arv = float(build["resale_price_per_sqft"]) * living_area
+    arv = float(listing.arv_estimate or config_arv)
+    arv_source = listing.arv_source or "config"
     construction_cost = float(build["construction_cost_per_sqft"]) * living_area
     soft_cost = float(costs["soft_cost_pct"]) * construction_cost
     purchase_closing_cost = float(costs.get("purchase_closing_pct", 0)) * land_cost
@@ -86,6 +94,24 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     is_viable = True
     if tier_label:
         reasons.append(f"• segmento: {tier_label}")
+    if arv_source == "rentcast_avm":
+        extra = ""
+        if listing.arv_comps_count:
+            extra += f" ({listing.arv_comps_count} comps"
+            if listing.arv_confidence:
+                extra += f", {listing.arv_confidence}"
+            extra += ")"
+        reasons.append(f"✓ ARV por comps RentCast{extra}")
+    else:
+        reasons.append("⚠ ARV por premissa fixa do config")
+
+    max_land_price = float(rules.get("max_land_price") or 0)
+    if max_land_price > 0:
+        if land_cost <= max_land_price:
+            reasons.append(f"✓ terreno US$ {land_cost:,.0f} ≤ teto US$ {max_land_price:,.0f}")
+        else:
+            is_viable = False
+            reasons.append(f"✗ terreno US$ {land_cost:,.0f} > teto US$ {max_land_price:,.0f}")
 
     target_margin = float(rules["target_margin"])
     if margin >= target_margin:
@@ -125,6 +151,12 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         else:
             reasons.append("✓ zoneamento residencial")
 
+    if rules.get("manual_review_only"):
+        is_viable = False
+        reasons.append(
+            "⚠ segmento exige análise manual de localização/bairro antes de virar alerta"
+        )
+
     return ViabilityResult(
         listing=listing,
         arv=arv,
@@ -143,4 +175,7 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         is_viable=is_viable,
         tier=tier_label,
         reasons=reasons,
+        arv_source=arv_source,
+        arv_comps_count=listing.arv_comps_count,
+        arv_confidence=listing.arv_confidence,
     )

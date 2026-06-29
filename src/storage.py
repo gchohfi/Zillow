@@ -22,10 +22,12 @@ class SeenStore:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        self._migrate_schema()
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS seen_listings (
-                id          TEXT PRIMARY KEY,
+                seen_key    TEXT PRIMARY KEY,
+                id          TEXT NOT NULL,
                 first_seen  TEXT NOT NULL,
                 price       REAL,
                 address     TEXT,
@@ -35,17 +37,67 @@ class SeenStore:
         )
         self.conn.commit()
 
-    def is_new(self, listing_id: str) -> bool:
-        cur = self.conn.execute(
-            "SELECT 1 FROM seen_listings WHERE id = ?", (listing_id,)
+    def _migrate_schema(self) -> None:
+        cols = {
+            row[1]: row
+            for row in self.conn.execute("PRAGMA table_info(seen_listings)").fetchall()
+        }
+        if not cols or "seen_key" in cols:
+            return
+
+        self.conn.execute("ALTER TABLE seen_listings RENAME TO seen_listings_old")
+        self.conn.execute(
+            """
+            CREATE TABLE seen_listings (
+                seen_key    TEXT PRIMARY KEY,
+                id          TEXT NOT NULL,
+                first_seen  TEXT NOT NULL,
+                price       REAL,
+                address     TEXT,
+                payload     TEXT
+            )
+            """
         )
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO seen_listings (seen_key, id, first_seen, price, address, payload)
+            SELECT
+                id || ':' || COALESCE(printf('%.0f', price), 'unknown'),
+                id,
+                first_seen,
+                price,
+                address,
+                payload
+            FROM seen_listings_old
+            """
+        )
+        self.conn.execute("DROP TABLE seen_listings_old")
+
+    @staticmethod
+    def key_for(listing: Listing) -> str:
+        """Dedup key: same listing at a new price should alert again."""
+        try:
+            price = str(round(float(listing.price)))
+        except (TypeError, ValueError):
+            price = "unknown"
+        return f"{listing.id}:{price}"
+
+    def is_new(self, listing: Listing | str) -> bool:
+        if isinstance(listing, Listing):
+            key = self.key_for(listing)
+            cur = self.conn.execute(
+                "SELECT 1 FROM seen_listings WHERE seen_key = ?", (key,)
+            )
+            return cur.fetchone() is None
+        cur = self.conn.execute("SELECT 1 FROM seen_listings WHERE id = ?", (listing,))
         return cur.fetchone() is None
 
     def mark_seen(self, listing: Listing) -> None:
         self.conn.execute(
-            "INSERT OR IGNORE INTO seen_listings (id, first_seen, price, address, payload) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO seen_listings (seen_key, id, first_seen, price, address, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
+                self.key_for(listing),
                 listing.id,
                 datetime.now(timezone.utc).isoformat(),
                 listing.price,
