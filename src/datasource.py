@@ -13,6 +13,7 @@ e implemente `fetch_new_land_listings`.
 from __future__ import annotations
 
 import abc
+import time
 from typing import Any
 
 import requests
@@ -218,6 +219,7 @@ class RentCastSource(DataSource):
 
     def __init__(self, ds_cfg: dict[str, Any]) -> None:
         self.cfg = ds_cfg.get("rentcast", {})
+        self.errors: list[str] = []
         self.key = env("RENTCAST_API_KEY")
         if not self.key:
             raise RuntimeError(
@@ -249,15 +251,23 @@ class RentCastSource(DataSource):
                 except requests.HTTPError as exc:
                     status = exc.response.status_code if exc.response is not None else None
                     if status in (401, 403):
-                        print("  [erro] RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano.")
+                        msg = "RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano."
+                        self.errors.append(msg)
+                        print(f"  [erro] {msg}")
                         return list(by_id.values())
                     if status == 429:
-                        print("  [erro] RentCast recusou a chamada: limite de requisicoes atingido.")
+                        msg = "RentCast recusou a chamada: limite de requisicoes atingido."
+                        self.errors.append(msg)
+                        print(f"  [erro] {msg}")
                         return list(by_id.values())
-                    print(f"  [aviso] falha ao buscar RentCast {name}: {exc}")
+                    msg = f"falha ao buscar RentCast {name}: {exc}"
+                    self.errors.append(msg)
+                    print(f"  [aviso] {msg}")
                     break
                 except requests.RequestException as exc:
-                    print(f"  [aviso] falha ao buscar RentCast {name}: {exc}")
+                    msg = f"falha ao buscar RentCast {name}: {exc}"
+                    self.errors.append(msg)
+                    print(f"  [aviso] {msg}")
                     break
 
                 for item in raw_items:
@@ -286,8 +296,28 @@ class RentCastSource(DataSource):
         optional_params = self.cfg.get("params", {})
         params.update({k: v for k, v in optional_params.items() if v not in (None, "")})
         headers = {"Accept": "application/json", "X-Api-Key": self.key}
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
-        resp.raise_for_status()
+        timeout = float(self.cfg.get("timeout_seconds", 60))
+        retries = int(self.cfg.get("retries", 2))
+        retry_sleep = float(self.cfg.get("retry_sleep_seconds", 3))
+        last_exc: requests.RequestException | None = None
+        for attempt in range(retries + 1):
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+                resp.raise_for_status()
+                break
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status is not None and status < 500:
+                    raise
+                last_exc = exc
+            except requests.RequestException as exc:
+                last_exc = exc
+            if attempt < retries:
+                print(f"  [aviso] RentCast tentativa {attempt + 1} falhou; tentando novamente...")
+                time.sleep(retry_sleep)
+        else:
+            assert last_exc is not None
+            raise last_exc
         data = resp.json()
         return data if isinstance(data, list) else []
 
