@@ -21,6 +21,7 @@ class Listing:
     listing_date: Optional[str] = None
     url: str = ""
     source: str = ""
+    normalized_address: str = ""          # preenchido ao normalizar/deduplicar endereço
     distance_km: Optional[float] = None   # preenchido pelo geofiltro
     arv_estimate: Optional[float] = None   # ARV da casa pronta via comps/AVM
     arv_source: Optional[str] = None

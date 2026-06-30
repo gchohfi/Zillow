@@ -124,6 +124,18 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
+### Normalização de endereço e red flags
+
+O sistema normaliza endereços dos EUA com `usaddress` para reduzir duplicidade
+quando a mesma oportunidade aparece com IDs diferentes em fontes diferentes. O
+dedupe continua sensível a mudança de preço: mesmo endereço com novo preço pode
+voltar a alertar.
+
+Antes do WhatsApp, também existe uma checagem direta na FEMA National Flood
+Hazard Layer (`config.yaml → red_flags.flood`). Zonas como `AE`, `VE` ou pontos
+marcados como SFHA entram nas atenções do alerta e do CSV. Por padrão, falha na
+FEMA não bloqueia alerta; ela apenas adiciona uma atenção para conferência manual.
+
 ### Tese de mercado por ZIP
 
 Além da matemática, o sistema classifica cada oportunidade pela tese de mercado
@@ -164,6 +176,11 @@ Maps, Zillow e Realtor. Se a fonte trouxer o link original da listagem, ele
 também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
 oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
 
+Além dos alertas de oportunidade, `config.yaml → notifications.whatsapp_run_summary`
+envia um resumo operacional a cada rodada: quantas listagens foram encontradas,
+quantas já eram vistas, quantas reprovaram e quantas viraram oportunidade. Assim
+você sabe que o monitor rodou mesmo quando não há nada para comprar.
+
 Antes do WhatsApp, o sistema faz uma checagem de disponibilidade com dados
 estruturados da fonte: status ativo, sem `removedDate`, visto recentemente,
 listado há poucos dias e com MLS. Isso reduz casos em que o endereço aparece no
@@ -180,6 +197,18 @@ ajustáveis em `config.yaml`.
 pip install -r requirements-dev.txt
 pytest
 ```
+
+## Dashboard interno
+
+O painel Streamlit mostra oportunidades, avaliações reprovadas, tese de mercado,
+red flags e mapa interativo quando houver coordenadas no CSV:
+
+```bash
+streamlit run dashboard.py
+```
+
+O dashboard lê `opportunities.csv` e `evaluations.csv`. O segundo arquivo é criado
+automaticamente com toda listagem nova avaliada, mesmo quando ela não vira alerta.
 
 ---
 
