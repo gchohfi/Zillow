@@ -65,6 +65,15 @@ def send_message(subject: str, body: str, dry_run: bool = False) -> None:
     _maybe_send_zapi_whatsapp(f"{subject}\n\n{body}")
 
 
+def send_whatsapp_status(message: str, dry_run: bool = False) -> None:
+    """Send an operational status message only through WhatsApp."""
+    print(message)
+    if dry_run:
+        print("\n[dry-run] resumo WhatsApp não foi enviado.")
+        return
+    _maybe_send_zapi_whatsapp(message)
+
+
 def _format_whatsapp_result(r: ViabilityResult) -> str:
     listing = r.listing
     raw = listing.raw or {}
