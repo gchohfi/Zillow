@@ -228,6 +228,12 @@ storage:
 # ---- Saída em planilha ----
 output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
+  evaluations_csv_path: evaluations.csv  # toda listagem nova avaliada, viável ou não
+
+# ---- Notificações operacionais ----
+notifications:
+  whatsapp_run_summary:
+    enabled: true               # envia resumo da rodada mesmo sem oportunidade viável
 
 # ============================================================================
 #  FONTE DE DADOS — use RentCast para teste/produção leve, RapidAPI como fallback.

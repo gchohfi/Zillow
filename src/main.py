@@ -9,11 +9,41 @@ from .availability import check_availability
 from .arv import enrich_arv
 from .datasource import get_source
 from .geo import within_radius
-from .notifier import notify, send_message
+from .notifier import notify, send_message, send_whatsapp_status
 from .red_flags import apply_red_flags
-from .reporter import append_results
+from .reporter import append_evaluations, append_results
 from .storage import SeenStore
 from .viability import evaluate
+
+
+def _format_run_summary(
+    *,
+    source_name: str,
+    radius_km: float,
+    total: int,
+    out_of_radius: int,
+    already_seen: int,
+    unavailable: int,
+    not_viable: int,
+    failed: int,
+    viable_new: int,
+) -> str:
+    status = "Sem oportunidade viável nova nesta rodada."
+    if viable_new:
+        status = "Oportunidades viáveis foram enviadas em mensagens separadas."
+    return "\n".join([
+        "[Orlando Land] Resumo da rodada",
+        status,
+        f"Fonte: {source_name}",
+        f"Raio: {radius_km} km de Orlando",
+        f"Listagens encontradas: {total}",
+        f"Viáveis novas: {viable_new}",
+        f"Já vistas: {already_seen}",
+        f"Não viáveis: {not_viable}",
+        f"Indisponíveis/antigas: {unavailable}",
+        f"Fora do raio: {out_of_radius}",
+        f"Falhas: {failed}",
+    ])
 
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
@@ -46,6 +76,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         return
 
     viable_new = []
+    evaluated_results = []
     n_out_of_radius = n_already_seen = n_unavailable = n_not_viable = n_failed = 0
 
     for listing in listings:
@@ -80,6 +111,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         result.reasons.extend(availability_reasons)
         if not use_mock:
             apply_red_flags(result, cfg)
+        evaluated_results.append(result)
 
         store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
@@ -96,8 +128,24 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     csv_path = cfg.raw.get("output", {}).get("csv_path")
     if csv_path and viable_new:
         append_results(viable_new, csv_path)
+    evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
+    if evaluations_csv_path and evaluated_results:
+        append_evaluations(evaluated_results, evaluations_csv_path)
 
     notify(viable_new, dry_run=dry_run)
+    if cfg.raw.get("notifications", {}).get("whatsapp_run_summary", {}).get("enabled", False):
+        summary = _format_run_summary(
+            source_name="mock" if use_mock else source.__class__.__name__,
+            radius_km=radius_km,
+            total=len(listings),
+            out_of_radius=n_out_of_radius,
+            already_seen=n_already_seen,
+            unavailable=n_unavailable,
+            not_viable=n_not_viable,
+            failed=n_failed,
+            viable_new=len(viable_new),
+        )
+        send_whatsapp_status(summary, dry_run=dry_run)
 
     store.close()
 

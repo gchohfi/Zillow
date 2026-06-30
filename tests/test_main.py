@@ -1,7 +1,7 @@
 """Tests for the batch orchestration behavior."""
 
 from src.config import Config
-from src.main import run
+from src.main import _format_run_summary, run
 from src.models import Listing
 
 
@@ -91,6 +91,24 @@ def test_source_failure_sends_status_message(monkeypatch, tmp_path):
     assert messages
     assert messages[0][0] == "[Orlando Land] Falha na fonte de dados"
     assert "timeout na RentCast" in messages[0][1]
+
+
+def test_run_summary_reports_empty_round():
+    summary = _format_run_summary(
+        source_name="RentCastSource",
+        radius_km=80,
+        total=37,
+        out_of_radius=0,
+        already_seen=0,
+        unavailable=0,
+        not_viable=37,
+        failed=0,
+        viable_new=0,
+    )
+
+    assert "Sem oportunidade viável nova" in summary
+    assert "Listagens encontradas: 37" in summary
+    assert "Não viáveis: 37" in summary
 
 
 def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):

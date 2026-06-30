@@ -9,4 +9,5 @@ __pycache__/
 *.sqlite-*
 *.log
 opportunities.csv
+evaluations.csv
 .pytest_cache/
