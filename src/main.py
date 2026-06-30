@@ -10,6 +10,7 @@ from .arv import enrich_arv
 from .datasource import get_source
 from .geo import within_radius
 from .notifier import notify, send_message
+from .red_flags import apply_red_flags
 from .reporter import append_results
 from .storage import SeenStore
 from .viability import evaluate
@@ -77,6 +78,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             print(f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: {exc}")
             continue
         result.reasons.extend(availability_reasons)
+        if not use_mock:
+            apply_red_flags(result, cfg)
 
         store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:

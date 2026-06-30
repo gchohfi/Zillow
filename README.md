@@ -124,6 +124,18 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
+### Normalização de endereço e red flags
+
+O sistema normaliza endereços dos EUA com `usaddress` para reduzir duplicidade
+quando a mesma oportunidade aparece com IDs diferentes em fontes diferentes. O
+dedupe continua sensível a mudança de preço: mesmo endereço com novo preço pode
+voltar a alertar.
+
+Antes do WhatsApp, também existe uma checagem direta na FEMA National Flood
+Hazard Layer (`config.yaml → red_flags.flood`). Zonas como `AE`, `VE` ou pontos
+marcados como SFHA entram nas atenções do alerta e do CSV. Por padrão, falha na
+FEMA não bloqueia alerta; ela apenas adiciona uma atenção para conferência manual.
+
 ### Tese de mercado por ZIP
 
 Além da matemática, o sistema classifica cada oportunidade pela tese de mercado

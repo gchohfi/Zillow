@@ -86,6 +86,18 @@ availability:
   max_listed_age_days: 3
   require_mls_number: true
 
+# ---- Red flags de due diligence antes do alerta ----
+red_flags:
+  flood:
+    enabled: true
+    provider: fema_nfhl
+    # FEMA National Flood Hazard Layer. A consulta é por ponto (lat/lng).
+    query_url: https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query
+    timeout_seconds: 12
+    fail_open: true          # se FEMA falhar, não perde oportunidade; só marca atenção
+    block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
+    high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
+
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
 # Essa camada não substitui underwriting; ela prioriza o que aparece no WhatsApp/CSV.

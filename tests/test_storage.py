@@ -19,6 +19,37 @@ def test_seen_store_dedups_by_listing_id_and_price(tmp_path):
     store.close()
 
 
+def test_seen_store_dedups_by_normalized_address_across_sources(tmp_path):
+    store = SeenStore(str(tmp_path / "seen.db"))
+    first = Listing(
+        id="rentcast-1",
+        price=50_000,
+        lat=28.5,
+        lng=-81.3,
+        address="123 Main Street, Orlando, FL 32801",
+    )
+    same_address = Listing(
+        id="mls-2",
+        price=50_000,
+        lat=28.5,
+        lng=-81.3,
+        address="123 Main St Orlando Florida 32801",
+    )
+    new_price = Listing(
+        id="mls-2",
+        price=45_000,
+        lat=28.5,
+        lng=-81.3,
+        address="123 Main St Orlando Florida 32801",
+    )
+
+    store.mark_seen(first)
+
+    assert not store.is_new(same_address)
+    assert store.is_new(new_price)
+    store.close()
+
+
 def test_seen_store_migrates_old_id_primary_key_schema(tmp_path):
     db_path = tmp_path / "old.db"
     conn = sqlite3.connect(str(db_path))
