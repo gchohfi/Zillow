@@ -23,6 +23,20 @@ def _cfg() -> Config:
             "require_residential_zoning": True,
             "require_known_zoning": False,
         },
+        "market_strategy": {
+            "default_priority": "fora",
+            "default_score": 0,
+            "zip_groups": [
+                {
+                    "label": "Lake Nona / Narcoossee",
+                    "priority": "Alta",
+                    "score": 10,
+                    "zips": ["32827"],
+                    "strategies": ["SFR/BTR"],
+                    "risk_flags": ["checar utilities"],
+                }
+            ],
+        },
         "storage": {"db_path": ":memory:"},
     })
 
@@ -39,13 +53,26 @@ def test_within_radius():
 
 
 def test_cheap_lot_is_viable():
-    lot = Listing(id="a", price=95_000, lat=28.41, lng=-81.50, zoning="residential")
+    lot = Listing(
+        id="a",
+        price=95_000,
+        lat=28.41,
+        lng=-81.50,
+        address="123 Main St, Orlando, FL 32827",
+        zoning="residential",
+    )
     r = evaluate(lot, _cfg())
     assert r.is_viable
     assert r.margin >= 0.18
     assert r.land_to_total_investment <= 0.27
     assert r.land_to_total_investment == r.land_cost / r.total_cost
     assert r.arv_source == "config"
+    assert r.zip_code == "32827"
+    assert r.market_priority == "Alta"
+    assert r.market_region == "Lake Nona / Narcoossee"
+    assert r.market_score == 10
+    assert r.market_strategies == ["SFR/BTR"]
+    assert r.risk_flags == ["checar utilities"]
 
 
 def test_listing_arv_estimate_overrides_config_arv():

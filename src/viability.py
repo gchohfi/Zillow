@@ -7,6 +7,7 @@ comportamento sem mexer no código.
 from __future__ import annotations
 
 from .config import Config
+from .market_strategy import classify_market
 from .models import Listing, ViabilityResult
 
 _RESIDENTIAL_HINTS = (
@@ -132,8 +133,18 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     # --- Regras de corte ---
     reasons: list[str] = []
     is_viable = True
+    market = classify_market(listing, cfg)
     if tier_label:
         reasons.append(f"• segmento: {tier_label}")
+    if market["region"]:
+        reasons.append(
+            f"• mercado: {market['priority']} - {market['region']}"
+            + (f" ({market['zip_code']})" if market["zip_code"] else "")
+        )
+    elif market["priority"]:
+        reasons.append(f"• mercado: {market['priority']}")
+    for flag in market["risk_flags"]:
+        reasons.append(f"⚠ {flag}")
     if arv_source == "rentcast_avm":
         extra = ""
         if listing.arv_comps_count:
@@ -222,4 +233,10 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         arv_source=arv_source,
         arv_comps_count=listing.arv_comps_count,
         arv_confidence=listing.arv_confidence,
+        zip_code=market["zip_code"],
+        market_region=market["region"],
+        market_priority=market["priority"],
+        market_score=market["score"],
+        market_strategies=market["strategies"],
+        risk_flags=market["risk_flags"],
     )

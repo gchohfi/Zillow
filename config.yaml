@@ -86,6 +86,77 @@ availability:
   max_listed_age_days: 3
   require_mls_number: true
 
+# ---- Tese de mercado por ZIP/região ----
+# Pontuação baseada no relatório Arwell Orlando Market Research.
+# Essa camada não substitui underwriting; ela prioriza o que aparece no WhatsApp/CSV.
+market_strategy:
+  default_priority: "fora da tese principal"
+  default_score: 0
+  zip_groups:
+    - name: lake_nona_narcoossee_airport
+      label: "Lake Nona / Narcoossee / Airport South / Sunbridge"
+      priority: "Alta"
+      score: 10
+      zips: ["32827", "32832", "34771"]
+      strategies: ["townhomes premium", "SFR/BTR", "land banking", "flex/light industrial"]
+      risk_flags: ["checar basis alto", "checar entitlements/utilities", "checar airport/noise overlay"]
+
+    - name: horizon_west_winter_garden_ocoee
+      label: "Horizon West / Winter Garden / Ocoee"
+      priority: "Alta"
+      score: 9
+      zips: ["34787", "34786", "34761", "32836"]
+      strategies: ["townhomes", "SFR rentals", "BTR", "small multifamily"]
+      risk_flags: ["checar HOA/CDD", "checar school capacity", "evitar STR sem zoning letter"]
+
+    - name: minneola_clermont
+      label: "Minneola / Clermont / Lake County Turnpike"
+      priority: "Alta"
+      score: 8.5
+      zips: ["34715", "34711", "34714"]
+      strategies: ["land banking", "finished lots", "SFR", "BTR"]
+      risk_flags: ["checar utilities/Turnpike access", "checar impact fees", "checar municipality/county boundary"]
+
+    - name: st_cloud_neocity
+      label: "St. Cloud / NeoCity / East Osceola"
+      priority: "Alta"
+      score: 8.5
+      zips: ["34769", "34772", "34773", "34744"]
+      strategies: ["workforce housing", "SFR/BTR", "townhomes", "land banking"]
+      risk_flags: ["checar sewer path", "checar commute real", "checar absorcao/supply"]
+
+    - name: str_core
+      label: "Kissimmee / Four Corners / Davenport / ChampionsGate"
+      priority: "Alta com cautela"
+      score: 7.5
+      zips: ["34747", "34746", "33896", "33897", "34741", "34758"]
+      strategies: ["STR legal-by-address", "vacation townhomes", "SFR hybrid"]
+      risk_flags: ["checar STR legality por endereco", "checar HOA/CDD", "checar saturacao e P&L real"]
+
+    - name: workforce_value_add
+      label: "Workforce / value-add suburbano"
+      priority: "Média"
+      score: 7
+      zips: ["32822", "32824", "32808", "32810", "32805", "32771", "32703"]
+      strategies: ["SFR rentals", "small multifamily", "workforce housing", "value-add"]
+      risk_flags: ["checar seguranca bloco-a-bloco", "checar tax reset/insurance", "checar liquidez de saida"]
+
+    - name: monitorar_tod_land
+      label: "Apopka / DeBary / DeLand / SunRail-TOD"
+      priority: "Monitorar"
+      score: 6.5
+      zips: ["32712", "32713", "32720", "32724"]
+      strategies: ["land banking", "TOD", "townhomes", "workforce rentals"]
+      risk_flags: ["horizonte mais longo", "checar absorcao", "checar utilities e access roads"]
+
+    - name: premium_infill
+      label: "Winter Park / Dr. Phillips / premium infill"
+      priority: "Seletiva"
+      score: 6.5
+      zips: ["32789", "32792", "32819"]
+      strategies: ["premium SFR", "luxury infill", "small multifamily seletivo"]
+      risk_flags: ["basis alto", "margem depende de compra com desconto", "STR somente com validacao legal"]
+
 # ---- Resumo diário por e-mail ----
 summary:
   period_hours: 24             # janela do resumo (últimas N horas do CSV)
