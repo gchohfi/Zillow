@@ -17,6 +17,8 @@ def _format_result(r: ViabilityResult) -> str:
     dist = f"{L.distance_km:.0f} km" if L.distance_km is not None else "?"
     lines = [
         f"🏗️  OPORTUNIDADE VIÁVEL [{r.tier or 'n/d'}] — {L.address or L.id}",
+        f"    Mercado       : {r.market_priority or 'n/d'}"
+        + (f" · {r.market_region}" if r.market_region else ""),
         f"    Preço terreno : US$ {r.land_cost:,.0f}",
         f"    ARV (revenda) : US$ {r.arv:,.0f}",
         f"    Custo total   : US$ {r.total_cost:,.0f}",
@@ -26,6 +28,8 @@ def _format_result(r: ViabilityResult) -> str:
         f"    Terreno/invest: {r.land_to_total_investment:.1%}",
         f"    Distância     : {dist} de Orlando",
         f"    Link          : {L.url or '(sem link)'}",
+        f"    Teses         : {', '.join(r.market_strategies) if r.market_strategies else 'n/d'}",
+        f"    Atenções      : {', '.join(r.risk_flags) if r.risk_flags else 'n/d'}",
         "    " + " | ".join(r.reasons),
     ]
     return "\n".join(lines)
@@ -75,6 +79,10 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         "",
         address,
         f"Segmento: {r.tier or 'n/d'}",
+        f"Mercado: {r.market_priority or 'n/d'}"
+        + (f" - {r.market_region}" if r.market_region else ""),
+        f"ZIP: {r.zip_code or 'n/d'}",
+        f"Tese: {', '.join(r.market_strategies) if r.market_strategies else 'n/d'}",
         f"Terreno: US$ {r.land_cost:,.0f}",
         f"ARV estimado: US$ {r.arv:,.0f}",
         f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
@@ -84,6 +92,8 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.risk_flags:
+        lines.append(f"Atencoes: {'; '.join(r.risk_flags)}")
     mls = " ".join(str(part) for part in [raw.get("mlsName"), raw.get("mlsNumber")] if part)
     if mls:
         lines.append(f"MLS: {mls}")
@@ -112,7 +122,7 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
 
 def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
     max_messages = int(env("WHATSAPP_MAX_OPPORTUNITIES", "10") or 10)
-    ranked = sorted(results, key=lambda r: (r.margin, r.profit), reverse=True)
+    ranked = sorted(results, key=lambda r: (r.market_score, r.margin, r.profit), reverse=True)
     selected = ranked[:max_messages]
     if not selected:
         return
@@ -120,7 +130,7 @@ def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
     if len(results) > max_messages:
         _maybe_send_zapi_whatsapp(
             f"[Orlando Land] {len(results)} oportunidades viaveis. "
-            f"Enviando as {max_messages} melhores por margem/lucro."
+            f"Enviando as {max_messages} melhores por tese/margem/lucro."
         )
     for result in selected:
         _maybe_send_zapi_whatsapp(_format_whatsapp_result(result))

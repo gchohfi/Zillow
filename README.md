@@ -124,6 +124,20 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
+### Tese de mercado por ZIP
+
+Além da matemática, o sistema classifica cada oportunidade pela tese de mercado
+do relatório Arwell. Em `config.yaml → market_strategy`, cada grupo de ZIPs tem
+prioridade, pontuação, teses prováveis e riscos de diligência. O WhatsApp e o CSV
+passam a mostrar região, prioridade, tese e atenções como `checar utilities`,
+`checar HOA/CDD`, `checar STR legality por endereço` ou `checar airport/noise
+overlay`.
+
+Essa camada ajuda a separar um terreno apenas barato de uma oportunidade dentro
+das regiões-alvo: Lake Nona/Narcoossee, Horizon West/Winter Garden,
+Minneola/Clermont, St. Cloud/NeoCity, Kissimmee/Four Corners/Davenport e outros
+corredores do relatório.
+
 ### ARV por comps reais
 
 Antes de calcular a viabilidade, o sistema tenta chamar o endpoint RentCast AVM
