@@ -53,3 +53,9 @@ class ViabilityResult:
     arv_source: str = "config"
     arv_comps_count: Optional[int] = None
     arv_confidence: Optional[str] = None
+    zip_code: Optional[str] = None
+    market_region: str = ""
+    market_priority: str = ""
+    market_score: float = 0
+    market_strategies: list[str] = field(default_factory=list)
+    risk_flags: list[str] = field(default_factory=list)
