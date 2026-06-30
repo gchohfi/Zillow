@@ -40,6 +40,12 @@ def _result(address="121 Central Ave, Davenport, FL 33896", margin=0.216, profit
         is_viable=True,
         tier="Médio padrão",
         reasons=[],
+        zip_code="33896",
+        market_region="Kissimmee / Four Corners / Davenport / ChampionsGate",
+        market_priority="Alta com cautela",
+        market_score=7.5,
+        market_strategies=["STR legal-by-address", "SFR hybrid"],
+        risk_flags=["checar STR legality por endereco", "checar HOA/CDD"],
     )
 
 
@@ -107,6 +113,10 @@ def test_whatsapp_result_format_includes_details_and_links():
 
     assert "Oportunidade Orlando Land" in message
     assert "121 Central Ave, Davenport, FL 33896" in message
+    assert "Mercado: Alta com cautela - Kissimmee / Four Corners / Davenport / ChampionsGate" in message
+    assert "ZIP: 33896" in message
+    assert "Tese: STR legal-by-address, SFR hybrid" in message
+    assert "Atencoes: checar STR legality por endereco; checar HOA/CDD" in message
     assert "Terreno: US$ 54,900" in message
     assert "Margem: 21.6%" in message
     assert "Google Maps: https://www.google.com/maps/search/?api=1&query=121+Central" in message
