@@ -98,6 +98,17 @@ red_flags:
     block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
     high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
 
+# ---- Radar de revisão manual ----
+# Não transforma em "oportunidade viável"; só manda para conferência quando os
+# números passam e o bloqueio é due diligence (ex.: zoneamento desconhecido).
+radar:
+  enabled: true
+  send_whatsapp: true
+  max_candidates: 10
+  include_unknown_zoning: true
+  include_manual_review_segments: true
+  include_high_flood_risk: true
+
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
 # Essa camada não substitui underwriting; ela prioriza o que aparece no WhatsApp/CSV.

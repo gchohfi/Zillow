@@ -94,6 +94,43 @@ A cada execução ele busca o que é novo, calcula viabilidade, grava no CSV e
 dispara os alertas. Como ele lembra o que já viu (SQLite), você só é avisado de
 oportunidades **inéditas**.
 
+### Agendamento automático na nuvem (GitHub Actions)
+
+O projeto também tem um workflow em `.github/workflows/scan.yml` para rodar sem
+deixar seu computador ligado. Ele pode ser iniciado manualmente pelo botão
+**Run workflow** no GitHub e também roda agendado de hora em hora.
+
+Antes de ativar, cadastre os Secrets do repositório em:
+`Settings → Secrets and variables → Actions → New repository secret`.
+
+Secrets principais:
+
+| Secret | Obrigatório? | Uso |
+|---|---:|---|
+| `RENTCAST_API_KEY` | Sim | Busca listagens e ARV/comps na RentCast |
+| `ZAPI_INSTANCE_ID` | Para WhatsApp | Instância da Z-API |
+| `ZAPI_INSTANCE_TOKEN` | Para WhatsApp | Token da instância Z-API |
+| `ZAPI_CLIENT_TOKEN` | Se sua Z-API exigir | Client token da Z-API |
+| `ZAPI_PHONE` | Para WhatsApp | Número que recebe os alertas |
+| `RAPIDAPI_KEY` / `RAPIDAPI_HOST` | Opcional | Fallback se trocar a fonte para RapidAPI |
+| `SMTP_*` / `ALERT_EMAIL_TO` | Opcional | Alertas por e-mail |
+| `TELEGRAM_*` | Opcional | Alertas por Telegram |
+
+O workflow restaura e salva `seen_listings.db`, `opportunities.csv` e
+`evaluations.csv` usando cache do GitHub Actions. Isso evita que a nuvem esqueça
+o que já foi visto entre uma rodada e outra. Os CSVs e o banco também são
+enviados como artifacts por 14 dias para auditoria.
+
+Para mudar a frequência, edite o cron no workflow:
+
+```yaml
+# de hora em hora
+- cron: "0 * * * *"
+
+# aproximadamente a cada 5 horas
+- cron: "0 0,5,10,15,20 * * *"
+```
+
 ### Resumo diário por e-mail
 
 Além dos alertas de cada rodada, dá para receber **um resumo consolidado 1x ao dia**

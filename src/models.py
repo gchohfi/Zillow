@@ -60,3 +60,5 @@ class ViabilityResult:
     market_score: float = 0
     market_strategies: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
+    review_status: str = ""       # viavel, radar_zoneamento_pendente, radar_analise_manual, reprovado
+    review_reason: str = ""
