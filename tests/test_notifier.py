@@ -2,6 +2,7 @@
 
 from src.models import Listing, ViabilityResult
 from src.notifier import (
+    _format_whatsapp_radar_result,
     _format_whatsapp_result,
     _maybe_send_zapi_whatsapp,
     _maybe_send_zapi_whatsapp_results,
@@ -122,6 +123,22 @@ def test_whatsapp_result_format_includes_details_and_links():
     assert "Google Maps: https://www.google.com/maps/search/?api=1&query=121+Central" in message
     assert "Zillow: https://www.zillow.com/homes/121+Central" in message
     assert "Realtor: https://www.realtor.com/realestateandhomes-search/121+Central" in message
+
+
+def test_whatsapp_radar_result_marks_manual_review_not_green_light():
+    result = _result()
+    result.is_viable = False
+    result.review_status = "radar_zoneamento_pendente"
+    result.review_reason = "numeros bons; falta confirmar zoneamento"
+    result.reasons = ["✗ zoneamento desconhecido; exige conferência antes do alerta"]
+
+    message = _format_whatsapp_radar_result(result)
+
+    assert "Radar Orlando Land" in message
+    assert "Radar - zoneamento pendente" in message
+    assert "NAO OFERTAR antes de confirmar zoneamento/county GIS." in message
+    assert "Motivo: numeros bons; falta confirmar zoneamento" in message
+    assert "Zillow manual: https://www.zillow.com/homes/121+Central" in message
 
 
 def test_zapi_whatsapp_results_sends_top_ranked_with_limit(monkeypatch):

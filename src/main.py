@@ -9,9 +9,10 @@ from .availability import check_availability
 from .arv import enrich_arv
 from .datasource import get_source
 from .geo import within_radius
-from .notifier import notify, send_message, send_whatsapp_status
+from .notifier import notify, notify_radar, send_message, send_whatsapp_status
 from .red_flags import apply_red_flags
 from .reporter import append_evaluations, append_results
+from .review import classify_review_status, is_radar_candidate
 from .storage import SeenStore
 from .viability import evaluate
 
@@ -27,10 +28,13 @@ def _format_run_summary(
     not_viable: int,
     failed: int,
     viable_new: int,
+    radar: int = 0,
 ) -> str:
     status = "Sem oportunidade viável nova nesta rodada."
     if viable_new:
         status = "Oportunidades viáveis foram enviadas em mensagens separadas."
+    elif radar:
+        status = "Sem oportunidade aprovada; há candidatos no Radar para revisão manual."
     return "\n".join([
         "[Orlando Land] Resumo da rodada",
         status,
@@ -38,8 +42,9 @@ def _format_run_summary(
         f"Raio: {radius_km} km de Orlando",
         f"Listagens encontradas: {total}",
         f"Viáveis novas: {viable_new}",
+        f"Radar/revisão: {radar}",
         f"Já vistas: {already_seen}",
-        f"Não viáveis: {not_viable}",
+        f"Reprovadas: {not_viable}",
         f"Indisponíveis/antigas: {unavailable}",
         f"Fora do raio: {out_of_radius}",
         f"Falhas: {failed}",
@@ -76,6 +81,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         return
 
     viable_new = []
+    radar_candidates = []
     evaluated_results = []
     n_out_of_radius = n_already_seen = n_unavailable = n_not_viable = n_failed = 0
 
@@ -111,17 +117,20 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         result.reasons.extend(availability_reasons)
         if not use_mock:
             apply_red_flags(result, cfg)
+        classify_review_status(result, cfg)
         evaluated_results.append(result)
 
         store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
             viable_new.append(result)
+        elif is_radar_candidate(result):
+            radar_candidates.append(result)
         else:
             n_not_viable += 1
 
     print(f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
           f"indisponíveis/provavelmente antigas: {n_unavailable} | "
-          f"não viáveis: {n_not_viable} | falhas: {n_failed} | "
+          f"radar: {len(radar_candidates)} | reprovadas: {n_not_viable} | falhas: {n_failed} | "
           f"viáveis NOVOS: {len(viable_new)}")
 
     # Grava as oportunidades viáveis na planilha CSV.
@@ -133,6 +142,13 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         append_evaluations(evaluated_results, evaluations_csv_path)
 
     notify(viable_new, dry_run=dry_run)
+    radar_cfg = cfg.raw.get("radar", {})
+    if radar_cfg.get("enabled", False) and radar_cfg.get("send_whatsapp", True):
+        notify_radar(
+            radar_candidates,
+            dry_run=dry_run,
+            max_messages=int(radar_cfg.get("max_candidates", 10) or 10),
+        )
     if cfg.raw.get("notifications", {}).get("whatsapp_run_summary", {}).get("enabled", False):
         summary = _format_run_summary(
             source_name="mock" if use_mock else source.__class__.__name__,
@@ -142,6 +158,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             already_seen=n_already_seen,
             unavailable=n_unavailable,
             not_viable=n_not_viable,
+            radar=len(radar_candidates),
             failed=n_failed,
             viable_new=len(viable_new),
         )

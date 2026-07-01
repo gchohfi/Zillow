@@ -36,6 +36,8 @@ def test_failed_evaluation_is_not_marked_seen(monkeypatch, tmp_path):
 def test_unavailable_listing_is_not_marked_seen(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
 
     class Source:
         def fetch_new_land_listings(self, _cfg):
@@ -108,12 +110,15 @@ def test_run_summary_reports_empty_round():
 
     assert "Sem oportunidade viável nova" in summary
     assert "Listagens encontradas: 37" in summary
-    assert "Não viáveis: 37" in summary
+    assert "Radar/revisão: 0" in summary
+    assert "Reprovadas: 37" in summary
 
 
 def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
     calls = []
 
     class Source:
@@ -138,3 +143,49 @@ def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
     run(use_mock=True, dry_run=True)
 
     assert calls == [1, 1]
+
+
+def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["rules"]["require_known_zoning"] = True
+    cfg.raw["radar"] = {
+        "enabled": True,
+        "send_whatsapp": True,
+        "max_candidates": 10,
+        "include_unknown_zoning": True,
+        "include_manual_review_segments": True,
+        "include_high_flood_risk": True,
+    }
+    viable_calls = []
+    radar_calls = []
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [
+                Listing(
+                    id="radar-zoning",
+                    price=12_000,
+                    lat=28.5384,
+                    lng=-81.3789,
+                    address="Radar zoning, Orlando, FL",
+                    lot_size_sqft=8000,
+                    zoning=None,
+                )
+            ]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr("src.main.notify", lambda results, dry_run=False: viable_calls.append(len(results)))
+    monkeypatch.setattr(
+        "src.main.notify_radar",
+        lambda results, dry_run=False, max_messages=10: radar_calls.append(len(results)),
+    )
+    monkeypatch.setattr("src.main.send_whatsapp_status", lambda message, dry_run=False: None)
+
+    run(use_mock=True, dry_run=True)
+
+    assert viable_calls == [0]
+    assert radar_calls == [1]
