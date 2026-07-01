@@ -10,6 +10,8 @@ from .models import ViabilityResult
 
 _COLUMNS = [
     "found_at",
+    "review_status",
+    "review_reason",
     "tier",
     "zip_code",
     "market_priority",
@@ -42,6 +44,8 @@ _COLUMNS = [
 _EVALUATION_COLUMNS = [
     "found_at",
     "is_viable",
+    "review_status",
+    "review_reason",
     "tier",
     "zip_code",
     "market_priority",
@@ -109,6 +113,8 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
             L = r.listing
             writer.writerow({
                 "found_at": now,
+                "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
+                "review_reason": r.review_reason,
                 "tier": r.tier,
                 "zip_code": r.zip_code or "",
                 "market_priority": r.market_priority,
@@ -157,6 +163,8 @@ def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
             writer.writerow({
                 "found_at": now,
                 "is_viable": "yes" if r.is_viable else "no",
+                "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
+                "review_reason": r.review_reason,
                 "tier": r.tier,
                 "zip_code": r.zip_code or "",
                 "market_priority": r.market_priority,
