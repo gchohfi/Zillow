@@ -571,11 +571,23 @@ const isNew = r => {
   return t && (NOW - t) < 24 * 3600000;
 };
 const rankOf = r => {
+  const g = growthOf(r);
   const base = r.kind === "viavel" ? 2 : r.kind === "radar" ? 1 : 0;
   const q = 0.5 * Math.min((r.margin || 0) / 0.25, 1)
-          + 0.3 * ((r.growth_score != null ? r.growth_score : 0) / 10)
+          + 0.3 * ((g ? g.score : 0) / 10)
           + 0.2 * ((r.market_score != null ? r.market_score : 0) / 10);
   return base + q + (isNew(r) ? 0.3 : 0);
+};
+
+const regionByZip = {};
+(DATA.regions || []).forEach(g => { if (g.growth_score != null) regionByZip[g.zip] = g; });
+
+// Score de crescimento da linha, com fallback para o score do ZIP
+// (pré-carregado das regiões-alvo) quando a avaliação não tem o próprio.
+const growthOf = r => {
+  if (r.growth_score != null) return { score: r.growth_score, signals: r.growth_signals };
+  const g = regionByZip[r.zip_code];
+  return g ? { score: g.growth_score, signals: g.growth_signals } : null;
 };
 
 const rows = DATA.rows.map(r => ({ ...r, kind: statusKind(r.review_status) }));
@@ -649,9 +661,10 @@ function meterHtml(score) {
 }
 
 function growthCell(r) {
-  if (r.growth_score == null) return '<span class="muted small">n/d</span>';
-  return '<div class="growth-cell" title="' + esc(r.growth_signals) + '">' +
-    meterHtml(r.growth_score) + "</div>";
+  const g = growthOf(r);
+  if (!g) return '<span class="muted small">n/d</span>';
+  return '<div class="growth-cell" title="' + esc(g.signals) + '">' +
+    meterHtml(g.score) + "</div>";
 }
 
 function badge(r) {
@@ -666,8 +679,9 @@ function oppCard(r) {
   const alert = r.kind === "viavel"
     ? '<div class="opp-alert ok">Pronta para oferta — confirme diligência básica</div>'
     : '<div class="opp-alert">' + "\\u26A0 " + esc(r.review_reason || "revisar diligência") + "</div>";
-  const growth = r.growth_score != null
-    ? '<div class="stat"><div class="l">região \\u2191</div><div class="v">' + r.growth_score.toFixed(1) + "/10</div></div>"
+  const g = growthOf(r);
+  const growth = g
+    ? '<div class="stat" title="' + esc(g.signals) + '"><div class="l">região \\u2191</div><div class="v">' + g.score.toFixed(1) + "/10</div></div>"
     : '<div class="stat"><div class="l">região \\u2191</div><div class="v muted">n/d</div></div>';
   return '<article class="opp ' + r.kind + '">' +
     '<div class="opp-head">' + badge(r) +
@@ -837,13 +851,14 @@ function renderMarkers(visible) {
   markerLayer.clearLayers();
   const colors = { viavel: "#0ca30c", radar: "#fab219", reprovado: "#898781" };
   pts.forEach(r => {
+    const g = growthOf(r);
     const popup =
       "<b>" + esc(r.address || r.id) + "</b><br>" +
       statusLabel(r.review_status) + "<br>" +
       "Terreno: " + fmtMoney(r.land_price) + " · ARV: " + fmtMoney(r.arv) + "<br>" +
       "Lucro: " + fmtMoney(r.profit) + " (margem " + fmtPct(r.margin) + ")<br>" +
-      (r.growth_score != null ? "Crescimento região: " + r.growth_score.toFixed(1) + "/10<br>" : "") +
-      (r.growth_signals ? "Sinais: " + esc(r.growth_signals) + "<br>" : "") +
+      (g ? "Crescimento região: " + g.score.toFixed(1) + "/10<br>" : "") +
+      (g && g.signals ? "Sinais: " + esc(g.signals) + "<br>" : "") +
       (r.market_region ? "Mercado: " + esc(r.market_region) + "<br>" : "") +
       (r.risk_flags ? "Atenções: " + esc(r.risk_flags) + "<br>" : "") +
       linkCell(r);
