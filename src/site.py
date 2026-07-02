@@ -2,6 +2,9 @@
 
 Pensado para rodar logo após a varredura (local ou GitHub Actions) e ser
 publicado no GitHub Pages, para a empresa acompanhar as oportunidades por link.
+
+O layout é otimizado para triagem: cartões de oportunidade ranqueados no topo
+(o que o captador precisa ver primeiro), reprovadas fora do caminho.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ _ROW_FIELDS = (
     "zip_code",
     "market_priority",
     "market_region",
+    "market_score",
     "market_strategies",
     "risk_flags",
     "growth_score",
@@ -49,6 +53,7 @@ _ROW_FIELDS = (
 _FLOAT_FIELDS = {
     "lat", "lng", "distance_km", "land_price", "arv", "total_cost",
     "profit", "margin", "land_to_total_investment", "growth_score",
+    "market_score",
 }
 
 
@@ -220,6 +225,7 @@ _TEMPLATE = """<!DOCTYPE html>
     --status-warning-text: #7a5200;
     --status-muted: #898781;
     --accent: #2a78d6;
+    --accent-wash: rgba(42,120,214,0.10);
     --meter-track: #cde2fb;
     --meter-fill: #2a78d6;
     --chip-bg: #f0efec;
@@ -236,6 +242,7 @@ _TEMPLATE = """<!DOCTYPE html>
       --status-good-text: #0ca30c;
       --status-warning-text: #fab219;
       --accent: #3987e5;
+      --accent-wash: rgba(57,135,229,0.16);
       --meter-track: #184f95;
       --meter-fill: #6da7ec;
       --chip-bg: #2c2c2a;
@@ -250,20 +257,33 @@ _TEMPLATE = """<!DOCTYPE html>
     font-size: 14px;
     line-height: 1.45;
   }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
-  header h1 { font-size: 22px; margin: 0 0 4px; }
-  header p { margin: 0; color: var(--text-secondary); }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
-  .tile {
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  header h1 { font-size: 20px; margin: 0 0 2px; }
+  header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  .banner-new {
+    display: none;
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--accent-wash);
+    border: 1px solid var(--accent);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .kpis { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+  .kpi {
     background: var(--surface-1);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
+    border-radius: 8px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
   }
-  .tile .label { color: var(--text-secondary); font-size: 12px; }
-  .tile .value { font-size: 28px; font-weight: 600; margin-top: 2px; }
-  .tile .sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 16px; }
+  .kpi .value { font-size: 20px; font-weight: 700; }
+  .kpi .label { color: var(--text-secondary); font-size: 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 16px; }
   .chip {
     border: 1px solid var(--border);
     background: var(--surface-1);
@@ -274,22 +294,113 @@ _TEMPLATE = """<!DOCTYPE html>
     font-size: 13px;
   }
   .chip.active { border-color: var(--accent); color: var(--text-primary); font-weight: 600; }
-  #search {
-    flex: 1 1 220px;
-    max-width: 340px;
-    padding: 7px 10px;
+  select#sort, #search {
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface-1);
     color: var(--text-primary);
+    font-size: 13px;
   }
-  section { margin-top: 28px; }
-  section h2 { font-size: 16px; margin: 0 0 8px; }
+  #search { flex: 1 1 180px; max-width: 300px; }
+  section { margin-top: 26px; }
+  section h2 { font-size: 15px; margin: 0 0 6px; }
   section .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
   .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  #map { height: 480px; }
+
+  /* ---- Feed de oportunidades (herói) ---- */
+  .opps { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
+  .opp {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .opp.viavel { border-left: 4px solid var(--status-good); }
+  .opp.radar { border-left: 4px solid var(--status-warning); }
+  .opp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .opp-head .when { margin-left: auto; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+  .tag-new {
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 2px 8px;
+    letter-spacing: 0.4px;
+  }
+  .opp-title { font-size: 15px; font-weight: 700; line-height: 1.3; }
+  .opp-sub { color: var(--text-secondary); font-size: 12px; }
+  .opp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat .l { color: var(--text-muted); font-size: 11px; }
+  .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .opp-alert { font-size: 12px; color: var(--status-warning-text); }
+  .opp-alert.ok { color: var(--status-good-text); }
+  .opp-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; border-top: 1px solid var(--grid); }
+  .opp-actions a { font-size: 13px; font-weight: 600; }
+  .show-more {
+    margin-top: 12px;
+    width: 100%;
+    padding: 9px;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    background: none;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .badge.viavel .dot { background: var(--status-good); }
+  .badge.viavel { color: var(--status-good-text); font-weight: 600; }
+  .badge.radar .dot { background: var(--status-warning); }
+  .badge.radar { color: var(--status-warning-text); font-weight: 600; }
+  .badge.reprovado .dot { background: var(--status-muted); }
+  .badge.reprovado { color: var(--text-muted); }
+
+  #map { height: 380px; }
+  .regions { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .region-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .region-card .zip { font-size: 15px; font-weight: 700; }
+  .region-card .name { color: var(--text-secondary); font-size: 12px; min-height: 28px; }
+  .meter-row { display: flex; align-items: center; gap: 8px; }
+  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--meter-track); overflow: hidden; }
+  .meter > span { display: block; height: 100%; border-radius: 4px; background: var(--meter-fill); }
+  .meter-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sig-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .sig-chip {
+    background: var(--chip-bg);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .region-card .counts { color: var(--text-muted); font-size: 12px; margin-top: auto; }
+
+  details.tbl { margin-top: 26px; }
+  details.tbl > summary {
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 4px;
+    color: var(--text-secondary);
+  }
   .table-scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; min-width: 900px; }
+  table { border-collapse: collapse; width: 100%; min-width: 980px; }
   th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--grid); vertical-align: top; }
   thead th {
     border-top: none;
@@ -300,105 +411,74 @@ _TEMPLATE = """<!DOCTYPE html>
     background: var(--surface-1);
   }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
-  .badge .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-  .badge.viavel .dot { background: var(--status-good); }
-  .badge.viavel { color: var(--status-good-text); font-weight: 600; }
-  .badge.radar .dot { background: var(--status-warning); }
-  .badge.radar { color: var(--status-warning-text); font-weight: 600; }
-  .badge.reprovado .dot { background: var(--status-muted); }
-  .badge.reprovado { color: var(--text-muted); }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .links a { margin-right: 8px; white-space: nowrap; }
   .muted { color: var(--text-muted); }
   .small { font-size: 12px; }
   .empty { padding: 24px; color: var(--text-muted); text-align: center; }
-  .regions { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-  .region-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .region-card .zip { font-size: 16px; font-weight: 700; }
-  .region-card .name { color: var(--text-secondary); font-size: 12px; min-height: 30px; }
-  .meter-row { display: flex; align-items: center; gap: 8px; }
-  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--meter-track); overflow: hidden; }
-  .meter > span { display: block; height: 100%; border-radius: 4px; background: var(--meter-fill); }
-  .meter-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .sig-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .sig-chip {
-    background: var(--chip-bg);
-    color: var(--text-secondary);
-    border-radius: 999px;
-    padding: 3px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .region-card .counts { color: var(--text-muted); font-size: 12px; margin-top: auto; }
   .growth-cell { min-width: 110px; }
   .growth-cell .meter { height: 6px; }
   footer { margin-top: 32px; color: var(--text-muted); font-size: 12px; }
   footer a { margin-right: 12px; }
+  @media (max-width: 480px) {
+    .opp-stats { grid-template-columns: repeat(2, 1fr); }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Orlando Land Detector</h1>
-    <p>Oportunidades de terreno para spec build num raio de 80&nbsp;km de Orlando ·
-       atualizado <span id="updated">—</span></p>
+    <p>Terrenos para spec build · raio de 80 km de Orlando · atualizado <span id="updated">—</span></p>
+    <div class="banner-new" id="banner-new"></div>
   </header>
 
-  <div class="tiles">
-    <div class="tile"><div class="label">Oportunidades viáveis</div><div class="value" id="kpi-viable">0</div><div class="sub" id="kpi-window"></div></div>
-    <div class="tile"><div class="label">Radar (revisar)</div><div class="value" id="kpi-radar">0</div><div class="sub">números bons, falta diligência</div></div>
-    <div class="tile"><div class="label">Avaliações</div><div class="value" id="kpi-total">0</div><div class="sub">tudo que o robô analisou</div></div>
-    <div class="tile"><div class="label">Maior margem</div><div class="value" id="kpi-margin">—</div><div class="sub" id="kpi-margin-addr"></div></div>
+  <div class="kpis">
+    <div class="kpi"><span class="value" id="kpi-new24">0</span><span class="label">novas em 24h</span></div>
+    <div class="kpi"><span class="value" id="kpi-viable">0</span><span class="label">viáveis</span></div>
+    <div class="kpi"><span class="value" id="kpi-radar">0</span><span class="label">no radar</span></div>
+    <div class="kpi"><span class="value" id="kpi-margin">—</span><span class="label">maior margem</span></div>
+    <div class="kpi"><span class="value" id="kpi-total">0</span><span class="label" id="kpi-total-label">avaliadas</span></div>
   </div>
 
   <div class="controls">
-    <button class="chip active" data-status="all">Tudo</button>
+    <button class="chip active" data-status="opp">Oportunidades</button>
     <button class="chip" data-status="viavel">✓ Viáveis</button>
     <button class="chip" data-status="radar">⚠ Radar</button>
-    <button class="chip" data-status="reprovado">Reprovadas</button>
-    <input id="search" type="search" placeholder="Filtrar por endereço, ZIP, região…">
+    <button class="chip" data-status="all">Tudo</button>
+    <select id="sort">
+      <option value="rank">Ordenar: recomendado</option>
+      <option value="recent">Mais recentes</option>
+      <option value="margin">Maior margem</option>
+      <option value="profit">Maior lucro</option>
+    </select>
+    <input id="search" type="search" placeholder="Endereço, ZIP, região…">
   </div>
 
-  <section id="sec-regions">
-    <h2>Crescimento por região</h2>
-    <p class="hint">Sinais estudados para identificar valorização: escolas e comércio próximos (OpenStreetMap)
-       e crescimento de população e renda em 5 anos (US Census). Score 0–10 por ZIP com avaliação recente.</p>
-    <div class="regions" id="region-cards"></div>
+  <section>
+    <h2>Oportunidades em aberto</h2>
+    <p class="hint">Viáveis passaram em todos os filtros; Radar tem números bons com uma pendência de diligência. Reprovadas ficam na tabela completa no fim da página.</p>
+    <div class="opps" id="opp-cards"></div>
+    <button class="show-more" id="show-more" style="display:none"></button>
   </section>
 
   <section>
     <h2>Mapa</h2>
-    <p class="hint">Verde = viável · Âmbar = radar (revisar) · Cinza = reprovada. Clique no ponto para detalhes.</p>
+    <p class="hint">Verde = viável · Âmbar = radar · Cinza = reprovada. Clique no ponto para detalhes.</p>
     <div class="card"><div id="map"></div></div>
   </section>
 
-  <section>
-    <h2>Oportunidades viáveis</h2>
-    <p class="hint">Passaram em todos os filtros automáticos (margem, terreno/investimento, zoneamento, disponibilidade).</p>
-    <div class="card table-scroll"><table id="tbl-viable"></table></div>
+  <section id="sec-regions">
+    <h2>Crescimento por região</h2>
+    <p class="hint">Sinais de valorização: escolas e comércio próximos (OpenStreetMap), população e renda em 5 anos (US Census). Score 0–10 por ZIP.</p>
+    <div class="regions" id="region-cards"></div>
   </section>
 
-  <section>
-    <h2>Radar — conferir antes de ofertar</h2>
-    <p class="hint">Números aprovados, mas com pendência de diligência (zoneamento, análise manual do segmento).</p>
-    <div class="card table-scroll"><table id="tbl-radar"></table></div>
-  </section>
-
-  <section>
-    <h2>Todas as avaliações</h2>
-    <p class="hint" id="all-hint"></p>
+  <details class="tbl">
+    <summary>Tabela completa (todas as avaliações do período, inclusive reprovadas)</summary>
     <div class="card table-scroll"><table id="tbl-all"></table></div>
-  </section>
+  </details>
 
   <footer>
     <a href="opportunities.csv" download>Baixar oportunidades (CSV)</a>
@@ -420,6 +500,14 @@ const fmtDate = iso => {
   const d = new Date(iso);
   return isNaN(d) ? (iso || "n/d") : d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 };
+const fmtAgo = iso => {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const h = (Date.now() - d.getTime()) / 3600000;
+  if (h < 1) return "há " + Math.max(1, Math.round(h * 60)) + " min";
+  if (h < 48) return "há " + Math.round(h) + " h";
+  return "há " + Math.round(h / 24) + " dias";
+};
 const statusKind = s => s === "viavel" ? "viavel" : (s || "").startsWith("radar_") ? "radar" : "reprovado";
 const statusLabel = s => ({
   viavel: "✓ Viável",
@@ -427,39 +515,66 @@ const statusLabel = s => ({
   radar_analise_manual: "⚠ Radar: análise manual",
 }[s] || (statusKind(s) === "radar" ? "⚠ Radar" : "Reprovada"));
 
+const NOW = new Date(DATA.generated_at).getTime() || Date.now();
+const isNew = r => {
+  const t = new Date(r.found_at).getTime();
+  return t && (NOW - t) < 24 * 3600000;
+};
+const rankOf = r => {
+  const base = r.kind === "viavel" ? 2 : r.kind === "radar" ? 1 : 0;
+  const q = 0.5 * Math.min((r.margin || 0) / 0.25, 1)
+          + 0.3 * ((r.growth_score != null ? r.growth_score : 0) / 10)
+          + 0.2 * ((r.market_score != null ? r.market_score : 0) / 10);
+  return base + q + (isNew(r) ? 0.3 : 0);
+};
+
 const rows = DATA.rows.map(r => ({ ...r, kind: statusKind(r.review_status) }));
 
 document.getElementById("updated").textContent = fmtDate(DATA.generated_at);
-document.getElementById("kpi-window").textContent = "últimos " + Math.round(DATA.period_days) + " dias";
 
 const viable = rows.filter(r => r.kind === "viavel");
 const radar = rows.filter(r => r.kind === "radar");
+const opportunities = rows.filter(r => r.kind !== "reprovado");
+document.getElementById("kpi-new24").textContent = opportunities.filter(isNew).length;
 document.getElementById("kpi-viable").textContent = viable.length;
 document.getElementById("kpi-radar").textContent = radar.length;
 document.getElementById("kpi-total").textContent = DATA.total_rows;
+document.getElementById("kpi-total-label").textContent =
+  "avaliadas em " + Math.round(DATA.period_days) + " dias";
 const candidates = viable.length ? viable : radar;
 const best = candidates.reduce((a, r) => (r.margin != null && (!a || r.margin > a.margin)) ? r : a, null);
-if (best) {
-  document.getElementById("kpi-margin").textContent = fmtPct(best.margin);
-  document.getElementById("kpi-margin-addr").textContent = best.address || "";
-}
-document.getElementById("all-hint").textContent =
-  "Mostrando " + rows.length + " de " + DATA.total_rows + " avaliações dos últimos " +
-  Math.round(DATA.period_days) + " dias.";
+if (best) document.getElementById("kpi-margin").textContent = fmtPct(best.margin);
 
-function linkCell(r) {
+// "Novas desde a sua última visita" (memória local do navegador).
+try {
+  const KEY = "oland-last-visit";
+  const last = parseInt(localStorage.getItem(KEY) || "0", 10);
+  if (last) {
+    const fresh = opportunities.filter(r => new Date(r.found_at).getTime() > last);
+    if (fresh.length) {
+      const b = document.getElementById("banner-new");
+      b.textContent = "\\u{1F514} " + fresh.length + " nova(s) oportunidade(s) desde a sua última visita";
+      b.style.display = "block";
+    }
+  }
+  localStorage.setItem(KEY, String(Date.now()));
+} catch (e) { /* navegação privada */ }
+
+function linkParts(r) {
   const links = [];
-  if (r.url) links.push('<a href="' + r.url + '" target="_blank" rel="noopener">Anúncio</a>');
+  if (r.url) links.push(['Anúncio', r.url]);
   if (r.address) {
     const q = encodeURIComponent(r.address);
-    links.push('<a href="https://www.google.com/maps/search/?api=1&query=' + q + '" target="_blank" rel="noopener">Maps</a>');
-    links.push('<a href="https://www.zillow.com/homes/' + q + '_rb/" target="_blank" rel="noopener">Zillow</a>');
-    links.push('<a href="https://www.realtor.com/realestateandhomes-search/' + q + '" target="_blank" rel="noopener">Realtor</a>');
+    links.push(['Zillow', 'https://www.zillow.com/homes/' + q + '_rb/']);
+    links.push(['Maps', 'https://www.google.com/maps/search/?api=1&query=' + q]);
+    links.push(['Realtor', 'https://www.realtor.com/realestateandhomes-search/' + q]);
   } else if (r.lat != null && r.lng != null) {
-    links.push('<a href="https://www.google.com/maps/search/?api=1&query=' + r.lat + ',' + r.lng + '" target="_blank" rel="noopener">Maps</a>');
+    links.push(['Maps', 'https://www.google.com/maps/search/?api=1&query=' + r.lat + ',' + r.lng]);
   }
-  return links.join(" ");
+  return links;
 }
+const linkCell = r => linkParts(r).map(([t, u]) =>
+  '<a href="' + u + '" target="_blank" rel="noopener">' + t + "</a>").join(" ");
 
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -489,32 +604,65 @@ function growthCell(r) {
     meterHtml(r.growth_score) + "</div>";
 }
 
-function renderRegions() {
-  const el = document.getElementById("region-cards");
-  const regions = (DATA.regions || []).filter(g => g.growth_score != null);
-  if (!regions.length) {
-    document.getElementById("sec-regions").style.display = "none";
+function badge(r) {
+  return '<span class="badge ' + r.kind + '"><span class="dot"></span>' + statusLabel(r.review_status) + '</span>';
+}
+
+// ---- Cartões de oportunidade ----
+let showAllCards = false;
+const CARD_LIMIT = 8;
+
+function oppCard(r) {
+  const alert = r.kind === "viavel"
+    ? '<div class="opp-alert ok">Pronta para oferta — confirme diligência básica</div>'
+    : '<div class="opp-alert">' + "\\u26A0 " + esc(r.review_reason || "revisar diligência") + "</div>";
+  const growth = r.growth_score != null
+    ? '<div class="stat"><div class="l">região \\u2191</div><div class="v">' + r.growth_score.toFixed(1) + "/10</div></div>"
+    : '<div class="stat"><div class="l">região \\u2191</div><div class="v muted">n/d</div></div>';
+  return '<article class="opp ' + r.kind + '">' +
+    '<div class="opp-head">' + badge(r) +
+      (isNew(r) ? '<span class="tag-new">NOVA</span>' : "") +
+      '<span class="when">' + fmtAgo(r.found_at) + "</span></div>" +
+    '<div><div class="opp-title">' + esc(r.address || r.id) + "</div>" +
+    '<div class="opp-sub">' + esc(r.market_region || "fora das regiões-alvo") +
+      (r.zip_code ? " · ZIP " + esc(r.zip_code) : "") +
+      (r.tier ? " · " + esc(r.tier) : "") +
+      (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
+    '<div class="opp-stats">' +
+      '<div class="stat"><div class="l">terreno</div><div class="v">' + fmtMoney(r.land_price) + "</div></div>" +
+      '<div class="stat"><div class="l">lucro est.</div><div class="v">' + fmtMoney(r.profit) + "</div></div>" +
+      '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) + "</div></div>" +
+      growth +
+    "</div>" +
+    alert +
+    '<div class="opp-actions">' + linkCell(r) + "</div>" +
+  "</article>";
+}
+
+function renderCards(visible) {
+  const el = document.getElementById("opp-cards");
+  const more = document.getElementById("show-more");
+  const cards = visible.filter(r => r.kind !== "reprovado");
+  if (!cards.length) {
+    el.innerHTML = '<div class="card empty" style="grid-column:1/-1">Nenhuma oportunidade em aberto no período/filtro. As reprovadas ficam na tabela completa abaixo.</div>';
+    more.style.display = "none";
     return;
   }
-  el.innerHTML = regions.map(g =>
-    '<div class="region-card">' +
-      '<div><span class="zip">' + esc(g.zip) + "</span>" +
-      (g.priority ? ' <span class="badge radar" style="color:var(--text-muted)">' + esc(g.priority) + "</span>" : "") +
-      "</div>" +
-      '<div class="name">' + esc(g.region || "fora das regiões-alvo mapeadas") + "</div>" +
-      meterHtml(g.growth_score) +
-      '<div class="sig-chips">' + sigChips(g.growth_signals) + "</div>" +
-      '<div class="counts">' + g.viable + " viável(is) · " + g.radar + " radar · " +
-      g.total + " avaliação(ões) no período</div>" +
-    "</div>"
-  ).join("");
+  const shown = showAllCards ? cards : cards.slice(0, CARD_LIMIT);
+  el.innerHTML = shown.map(oppCard).join("");
+  if (cards.length > CARD_LIMIT && !showAllCards) {
+    more.textContent = "Mostrar todas as " + cards.length + " oportunidades";
+    more.style.display = "block";
+  } else {
+    more.style.display = "none";
+  }
 }
+document.getElementById("show-more").addEventListener("click", () => {
+  showAllCards = true;
+  renderAll();
+});
 
-function badge(r) {
-  const kind = r.kind;
-  return '<span class="badge ' + kind + '"><span class="dot"></span>' + statusLabel(r.review_status) + '</span>';
-}
-
+// ---- Tabela completa (recolhida) ----
 const COLS = [
   { h: "Data", c: r => '<span class="small muted">' + fmtDate(r.found_at) + "</span>" },
   { h: "Status", c: badge },
@@ -547,33 +695,64 @@ function renderTable(el, data, emptyMsg) {
   el.innerHTML = head + body;
 }
 
-let statusFilter = "all";
+function renderRegions() {
+  const el = document.getElementById("region-cards");
+  const regions = (DATA.regions || []).filter(g => g.growth_score != null);
+  if (!regions.length) {
+    document.getElementById("sec-regions").style.display = "none";
+    return;
+  }
+  el.innerHTML = regions.map(g =>
+    '<div class="region-card">' +
+      '<div><span class="zip">' + esc(g.zip) + "</span>" +
+      (g.priority ? ' <span class="small muted">' + esc(g.priority) + "</span>" : "") +
+      "</div>" +
+      '<div class="name">' + esc(g.region || "fora das regiões-alvo mapeadas") + "</div>" +
+      meterHtml(g.growth_score) +
+      '<div class="sig-chips">' + sigChips(g.growth_signals) + "</div>" +
+      '<div class="counts">' + g.viable + " viável(is) · " + g.radar + " radar · " +
+      g.total + " avaliação(ões) no período</div>" +
+    "</div>"
+  ).join("");
+}
+
+// ---- Filtros / ordenação ----
+let statusFilter = "opp";
 let searchTerm = "";
+let sortMode = "rank";
 
 function matches(r) {
-  if (statusFilter !== "all" && r.kind !== statusFilter) return false;
+  if (statusFilter === "opp" && r.kind === "reprovado") return false;
+  if ((statusFilter === "viavel" || statusFilter === "radar") && r.kind !== statusFilter) return false;
   if (!searchTerm) return true;
   const hay = [r.address, r.zip_code, r.market_region, r.market_priority, r.tier, r.zoning]
     .join(" ").toLowerCase();
   return hay.includes(searchTerm);
 }
 
+function sorted(data) {
+  const copy = [...data];
+  if (sortMode === "recent") copy.sort((a, b) => (b.found_at || "").localeCompare(a.found_at || ""));
+  else if (sortMode === "margin") copy.sort((a, b) => (b.margin || 0) - (a.margin || 0));
+  else if (sortMode === "profit") copy.sort((a, b) => (b.profit || 0) - (a.profit || 0));
+  else copy.sort((a, b) => rankOf(b) - rankOf(a));
+  return copy;
+}
+
 let map = null, markerLayer = null;
 
 function renderAll() {
-  const visible = rows.filter(matches);
-  renderTable(document.getElementById("tbl-viable"),
-    visible.filter(r => r.kind === "viavel"), "Nenhuma oportunidade viável no período/filtro.");
-  renderTable(document.getElementById("tbl-radar"),
-    visible.filter(r => r.kind === "radar"), "Nenhum candidato no radar para o filtro atual.");
-  renderTable(document.getElementById("tbl-all"), visible, "Nenhuma avaliação no período/filtro.");
+  const visible = sorted(rows.filter(matches));
+  renderCards(visible);
+  renderTable(document.getElementById("tbl-all"), visible,
+    "Nenhuma avaliação no período/filtro.");
   renderMarkers(visible);
 }
 
 function renderMarkers(visible) {
   if (typeof L === "undefined") {
     document.getElementById("map").innerHTML =
-      '<div class="empty">Mapa indisponível (biblioteca de mapas não carregou). As tabelas abaixo seguem funcionando.</div>';
+      '<div class="empty">Mapa indisponível (biblioteca de mapas não carregou). Os cartões e tabelas seguem funcionando.</div>';
     return;
   }
   const pts = visible.filter(r => r.lat != null && r.lng != null && (r.lat || r.lng));
@@ -621,6 +800,10 @@ document.querySelectorAll(".chip").forEach(chip => {
     statusFilter = chip.dataset.status;
     renderAll();
   });
+});
+document.getElementById("sort").addEventListener("change", e => {
+  sortMode = e.target.value;
+  renderAll();
 });
 document.getElementById("search").addEventListener("input", e => {
   searchTerm = e.target.value.trim().toLowerCase();
