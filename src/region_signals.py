@@ -81,8 +81,15 @@ class SignalsCache:
 def _fetch_overpass_counts(
     lat: float, lng: float, radius_m: int, cfg: dict[str, Any]
 ) -> tuple[int | None, int | None]:
-    """Conta escolas e pontos de comércio num raio (OpenStreetMap)."""
-    url = cfg.get("overpass_url", "https://overpass-api.de/api/interpreter")
+    """Conta escolas e pontos de comércio num raio (OpenStreetMap).
+
+    Tenta espelhos em sequência: os IPs compartilhados de CI costumam ser
+    limitados pelo servidor principal do Overpass.
+    """
+    urls = cfg.get("overpass_urls") or [
+        cfg.get("overpass_url", "https://overpass-api.de/api/interpreter"),
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
     timeout = float(cfg.get("timeout_seconds", 25))
     query = f"""
 [out:json][timeout:{int(timeout)}];
@@ -94,34 +101,56 @@ out count;
 );
 out count;
 """
-    resp = requests.post(url, data={"data": query}, timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    counts = [
-        int(el.get("tags", {}).get("total", 0))
-        for el in data.get("elements", [])
-        if el.get("type") == "count"
-    ]
-    if len(counts) < 2:
-        return None, None
-    return counts[0], counts[1]
+    last_exc: Exception | None = None
+    for url in urls:
+        try:
+            resp = requests.post(
+                url,
+                data={"data": query},
+                headers={"User-Agent": _GEOCODER_USER_AGENT},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            continue
+        counts = [
+            int(el.get("tags", {}).get("total", 0))
+            for el in data.get("elements", [])
+            if el.get("type") == "count"
+        ]
+        if len(counts) < 2:
+            return None, None
+        return counts[0], counts[1]
+    assert last_exc is not None
+    raise last_exc
 
 
 def _fetch_census_acs(zip_code: str, year: int, cfg: dict[str, Any]) -> tuple[float | None, float | None]:
-    """Retorna (população, renda mediana) do ACS 5 anos para o ZIP/ZCTA."""
+    """Retorna (população, renda mediana) do ACS 5 anos para o ZIP/ZCTA.
+
+    Até o ACS 2019, o geo ZCTA é aninhado por estado e a consulta exige
+    `in=state:FIPS`; a partir de 2020 o ZCTA é nacional e o `in` é rejeitado.
+    """
     base = cfg.get("census_url", "https://api.census.gov/data")
     timeout = float(cfg.get("timeout_seconds", 25))
     url = f"{base}/{year}/acs/acs5"
-    resp = requests.get(
-        url,
-        params={
-            "get": "B01003_001E,B19013_001E",
-            "for": f"zip code tabulation area:{zip_code}",
-        },
-        timeout=timeout,
-    )
+    params: dict[str, Any] = {
+        "get": "B01003_001E,B19013_001E",
+        "for": f"zip code tabulation area:{zip_code}",
+    }
+    if year <= 2019:
+        params["in"] = f"state:{cfg.get('census_state_fips', '12')}"
+    resp = requests.get(url, params=params, timeout=timeout)
     resp.raise_for_status()
-    data = resp.json()
+    if not resp.text.strip():
+        # ZCTA sem dados retorna corpo vazio (204) em alguns vintages.
+        return None, None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None, None
     if not isinstance(data, list) or len(data) < 2:
         return None, None
 
@@ -190,12 +219,18 @@ def get_region_signals(
         return None
 
     max_age_days = float(section.get("cache_days", 30) or 30)
+    failure_retry_days = float(section.get("failure_retry_hours", 6) or 6) / 24
     own_cache = cache is None
     cache = cache or SignalsCache(section.get("cache_db", "region_signals.db"))
     try:
         cached = cache.get(zip_code, max_age_days)
         if cached is not None:
-            return cached
+            if cached.get("score") is not None:
+                return cached
+            # Busca anterior falhou (score vazio): tenta de novo após poucas
+            # horas em vez de esperar o cache de 30 dias expirar.
+            if cache.get(zip_code, failure_retry_days) is not None:
+                return cached
 
         radius_km = float(section.get("radius_km", 3) or 3)
         signals: dict[str, Any] = {
@@ -219,20 +254,26 @@ def get_region_signals(
 
         latest_year = int(section.get("census_latest_year", 2023))
         base_year = int(section.get("census_base_year", 2018))
+        pop_latest = income_latest = pop_base = income_base = None
         try:
             pop_latest, income_latest = _fetch_census_acs(zip_code, latest_year, section)
-            pop_base, income_base = _fetch_census_acs(zip_code, base_year, section)
-            signals["pop_growth_pct"] = _growth_pct(pop_base, pop_latest)
-            signals["income_growth_pct"] = _growth_pct(income_base, income_latest)
-            signals["pop_latest"] = pop_latest
         except (requests.RequestException, ValueError) as exc:
-            print(f"  [aviso] Census falhou para ZIP {zip_code}: {type(exc).__name__}")
+            print(f"  [aviso] Census {latest_year} falhou para ZIP {zip_code}: {type(exc).__name__}")
+        try:
+            pop_base, income_base = _fetch_census_acs(zip_code, base_year, section)
+        except (requests.RequestException, ValueError) as exc:
+            print(f"  [aviso] Census {base_year} falhou para ZIP {zip_code}: {type(exc).__name__}")
+        signals["pop_growth_pct"] = _growth_pct(pop_base, pop_latest)
+        signals["income_growth_pct"] = _growth_pct(income_base, income_latest)
+        signals["pop_latest"] = pop_latest
 
         signals["score"] = compute_score(signals)
         signals["summary"] = build_summary(signals, radius_km)
 
         # Guarda mesmo parcial: evita repetir chamadas com falha a cada rodada.
         cache.put(zip_code, signals)
+        # Pausa educada entre ZIPs para não estourar limites das APIs públicas.
+        time.sleep(float(section.get("fetch_pause_seconds", 1.0) or 0))
         return signals
     finally:
         if own_cache:
