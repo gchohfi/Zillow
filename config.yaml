@@ -82,9 +82,9 @@ availability:
   require_status_active: true
   allowed_statuses: [Active]
   reject_removed: true
-  max_last_seen_hours: 36
-  max_listed_age_days: 3
-  require_mls_number: true
+  max_last_seen_hours: 48
+  max_listed_age_days: 7
+  require_mls_number: false   # sem MLS vira atenção no alerta, não descarte silencioso
 
 # ---- Red flags de due diligence antes do alerta ----
 red_flags:
@@ -241,6 +241,11 @@ output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
   evaluations_csv_path: evaluations.csv  # toda listagem nova avaliada, viável ou não
 
+# ---- Dashboard estático publicável (GitHub Pages) ----
+site:
+  dir: site                    # diretório onde o index.html é gerado
+  period_days: 30              # janela de avaliações exibida no dashboard
+
 # ---- Notificações operacionais ----
 notifications:
   whatsapp_run_summary:
@@ -264,7 +269,7 @@ datasource:
     property_type: Land
     status: Active
     limit: 100
-    max_pages: 1
+    max_pages: 3               # até 300 listagens por rodada (era 100)
     timeout_seconds: 60
     retries: 2
     retry_sleep_seconds: 3
@@ -272,7 +277,7 @@ datasource:
     # Parâmetros opcionais aceitos pela RentCast. Para capturar oportunidades
     # recentes sem gastar chamadas demais, comece com poucos dias e ajuste.
     params:
-      daysOld: "0-3"
+      daysOld: "0-7"
 
     # Para a primeira peneira usamos ~50 milhas / 80 km de Orlando.
     # Se voltar para 180 km, reative pontos sobrepostos ao redor da região.

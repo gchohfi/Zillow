@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from .config import Config
@@ -37,7 +38,10 @@ def _has_high_flood_risk(result: ViabilityResult, cfg: Config) -> bool:
         if "fema flood zone" not in plain:
             continue
         upper = flag.upper()
-        if "SFHA" in upper or any(f" {zone}" in upper for zone in high_risk_zones):
+        if "SFHA" in upper:
+            return True
+        zone_match = re.search(r"FEMA FLOOD ZONE\s+([A-Z0-9]+)", upper)
+        if zone_match and zone_match.group(1) in high_risk_zones:
             return True
     return False
 

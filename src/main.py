@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .config import Config
+from .config import Config, env
 from .availability import check_availability
 from .arv import enrich_arv
 from .datasource import get_source
@@ -29,13 +29,14 @@ def _format_run_summary(
     failed: int,
     viable_new: int,
     radar: int = 0,
+    dashboard_url: str | None = None,
 ) -> str:
     status = "Sem oportunidade viável nova nesta rodada."
     if viable_new:
         status = "Oportunidades viáveis foram enviadas em mensagens separadas."
     elif radar:
         status = "Sem oportunidade aprovada; há candidatos no Radar para revisão manual."
-    return "\n".join([
+    lines = [
         "[Orlando Land] Resumo da rodada",
         status,
         f"Fonte: {source_name}",
@@ -48,7 +49,10 @@ def _format_run_summary(
         f"Indisponíveis/antigas: {unavailable}",
         f"Fora do raio: {out_of_radius}",
         f"Falhas: {failed}",
-    ])
+    ]
+    if dashboard_url:
+        lines.append(f"Dashboard: {dashboard_url}")
+    return "\n".join(lines)
 
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
@@ -161,6 +165,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             radar=len(radar_candidates),
             failed=n_failed,
             viable_new=len(viable_new),
+            dashboard_url=env("DASHBOARD_URL"),
         )
         send_whatsapp_status(summary, dry_run=dry_run)
 

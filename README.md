@@ -29,6 +29,7 @@ Arquivos principais:
 | `src/storage.py` | Banco SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/viability.py` | Motor de viabilidade do spec build |
 | `src/notifier.py` | Envio de alertas (console, e-mail SMTP, Telegram, WhatsApp via Z-API) |
+| `src/site.py` | Gera o dashboard estático publicado no GitHub Pages |
 | `src/main.py` | Orquestra tudo: busca → filtra → pontua → alerta |
 
 ---
@@ -224,9 +225,13 @@ listado há poucos dias e com MLS. Isso reduz casos em que o endereço aparece n
 Zillow como vendido/off-market. O Zillow continua como link de conferência, não
 como fonte automática por scraping.
 
-Para economizar chamadas no primeiro teste, o padrão busca listagens com
-`daysOld: "1-14"` e apenas a primeira página (`max_pages: 1`). Esses valores são
-ajustáveis em `config.yaml`.
+Antes do WhatsApp, o sistema faz a checagem de disponibilidade descrita acima.
+Listagens **sem número de MLS** não são mais descartadas em silêncio: elas
+passam com a atenção "MLS ausente (conferir listagem manualmente)" no alerta.
+Para voltar ao comportamento restritivo, ligue `availability.require_mls_number`.
+
+O padrão busca listagens com `daysOld: "0-7"` e até 3 páginas por rodada
+(`max_pages: 3`, ~300 listagens). Esses valores são ajustáveis em `config.yaml`.
 
 ## Testes
 
@@ -235,7 +240,39 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-## Dashboard interno
+O workflow `.github/workflows/tests.yml` roda a suíte automaticamente em cada
+push e pull request.
+
+## Dashboard para a empresa (GitHub Pages)
+
+A cada varredura, o workflow gera um **dashboard estático** com KPIs, mapa e
+tabelas (viáveis, radar e todas as avaliações) e publica no GitHub Pages:
+
+```
+https://gchohfi.github.io/Zillow/
+```
+
+É esse link que você passa para a empresa acompanhar as oportunidades — ele
+também sai no resumo de rodada do WhatsApp. O dashboard tem busca por
+endereço/ZIP/região, filtros por status e download dos CSVs.
+
+> ⚠️ Como o repositório é público, o dashboard também é público: qualquer pessoa
+> com o link vê os dados. Se isso for um problema, torne o repositório privado
+> (Pages privado exige plano pago) ou me peça outra forma de publicação.
+
+Para ativar na primeira vez: o workflow tenta habilitar o Pages sozinho; se a
+etapa "Configure GitHub Pages" falhar, habilite manualmente em
+`Settings → Pages → Source: GitHub Actions` e rode o workflow de novo.
+
+Para gerar localmente sem publicar:
+
+```bash
+python -m src.site        # escreve site/index.html a partir dos CSVs
+```
+
+A janela de dados exibida é `config.yaml → site.period_days` (padrão 30 dias).
+
+## Dashboard interno (Streamlit)
 
 O painel Streamlit mostra oportunidades, avaliações reprovadas, tese de mercado,
 red flags e mapa interativo quando houver coordenadas no CSV:
