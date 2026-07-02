@@ -11,6 +11,7 @@ from .datasource import get_source
 from .geo import within_radius
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
 from .red_flags import apply_red_flags
+from .region_signals import SignalsCache, get_region_signals
 from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
 from .storage import SeenStore
@@ -89,6 +90,11 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     evaluated_results = []
     n_out_of_radius = n_already_seen = n_unavailable = n_not_viable = n_failed = 0
 
+    signals_cfg = cfg.raw.get("region_signals", {})
+    signals_cache = None
+    if signals_cfg.get("enabled", False) and not use_mock:
+        signals_cache = SignalsCache(signals_cfg.get("cache_db", "region_signals.db"))
+
     for listing in listings:
         inside, dist = within_radius(
             center_lat, center_lng, listing.lat, listing.lng, radius_km
@@ -122,6 +128,13 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         if not use_mock:
             apply_red_flags(result, cfg)
         classify_review_status(result, cfg)
+        if signals_cache is not None and result.review_status != "reprovado":
+            signals = get_region_signals(
+                result.zip_code, listing.lat, listing.lng, cfg, cache=signals_cache
+            )
+            if signals:
+                result.growth_score = signals.get("score")
+                result.growth_signals = signals
         evaluated_results.append(result)
 
         store.mark_seen(listing)   # marca como visto somente depois da avaliação
@@ -169,6 +182,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         )
         send_whatsapp_status(summary, dry_run=dry_run)
 
+    if signals_cache is not None:
+        signals_cache.close()
     store.close()
 
 

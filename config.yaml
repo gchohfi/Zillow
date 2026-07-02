@@ -109,6 +109,19 @@ radar:
   include_manual_review_segments: true
   include_high_flood_risk: true
 
+# ---- Sinais de crescimento da região (dashboard + WhatsApp) ----
+# Fontes gratuitas: OpenStreetMap (escolas/comércio próximos) e US Census ACS
+# (crescimento de população e renda por ZIP em 5 anos). Falha de API nunca
+# bloqueia alerta; os sinais ficam em cache por ZIP porque mudam devagar.
+region_signals:
+  enabled: true
+  cache_db: region_signals.db
+  cache_days: 30               # revalida os sinais de cada ZIP a cada N dias
+  radius_km: 3                 # raio para contar escolas/comércio
+  census_latest_year: 2023     # ACS 5 anos mais recente
+  census_base_year: 2018       # base de comparação (5 anos antes)
+  timeout_seconds: 25
+
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
 # Essa camada não substitui underwriting; ela prioriza o que aparece no WhatsApp/CSV.
