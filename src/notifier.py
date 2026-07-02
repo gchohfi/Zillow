@@ -27,6 +27,8 @@ def _format_result(r: ViabilityResult) -> str:
         f"    Lucro estimado: US$ {r.profit:,.0f}  (margem {r.margin:.1%})",
         f"    Terreno/invest: {r.land_to_total_investment:.1%}",
         f"    Distância     : {dist} de Orlando",
+        f"    Crescimento   : "
+        + (f"{r.growth_score:.1f}/10" if r.growth_score is not None else "n/d"),
         f"    Link          : {L.url or '(sem link)'}",
         f"    Teses         : {', '.join(r.market_strategies) if r.market_strategies else 'n/d'}",
         f"    Atenções      : {', '.join(r.risk_flags) if r.risk_flags else 'n/d'}",
@@ -127,6 +129,11 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.growth_score is not None:
+        lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
+        summary = r.growth_signals.get("summary", [])
+        if summary:
+            lines.append(f"Sinais: {'; '.join(summary)}")
     if r.risk_flags:
         lines.append(f"Atencoes: {'; '.join(r.risk_flags)}")
     mls = " ".join(str(part) for part in [raw.get("mlsName"), raw.get("mlsNumber")] if part)
@@ -190,6 +197,11 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.growth_score is not None:
+        lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
+        summary = r.growth_signals.get("summary", [])
+        if summary:
+            lines.append(f"Sinais: {'; '.join(summary)}")
     if r.risk_flags:
         lines.append(f"Atencoes: {'; '.join(r.risk_flags)}")
     if attention:

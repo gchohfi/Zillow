@@ -67,6 +67,8 @@ jobs:
           path: |
             seen_listings.db
             seen_listings.db-*
+            region_signals.db
+            region_signals.db-*
             opportunities.csv
             evaluations.csv
           key: orlando-land-state-${{ github.run_id }}
@@ -130,6 +132,8 @@ jobs:
           path: |
             seen_listings.db
             seen_listings.db-*
+            region_signals.db
+            region_signals.db-*
             opportunities.csv
             evaluations.csv
           key: orlando-land-state-${{ github.run_id }}

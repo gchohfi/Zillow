@@ -174,6 +174,24 @@ Hazard Layer (`config.yaml → red_flags.flood`). Zonas como `AE`, `VE` ou ponto
 marcados como SFHA entram nas atenções do alerta e do CSV. Por padrão, falha na
 FEMA não bloqueia alerta; ela apenas adiciona uma atenção para conferência manual.
 
+### Sinais de crescimento da região
+
+Para ajudar a identificar regiões em valorização, cada oportunidade (viável ou
+radar) é enriquecida com sinais estudados de crescimento, usando fontes
+públicas gratuitas:
+
+- **Escolas e comércio próximos** (OpenStreetMap/Overpass): contagem num raio
+  de 3 km do terreno.
+- **Crescimento de população e renda** (US Census ACS 5 anos, por ZIP):
+  variação percentual em 5 anos.
+
+Os sinais viram um **score 0–10** (`config.yaml → region_signals`) que aparece
+nos cards "Crescimento por região" do dashboard, na coluna "Região ↑" das
+tabelas, no popup do mapa, no CSV (`growth_score`, `growth_signals`) e na
+mensagem do WhatsApp. Falha de API nunca bloqueia alerta — só deixa o sinal
+vazio. Os resultados ficam em cache por ZIP (`region_signals.db`, revalidado a
+cada 30 dias), então o custo por rodada é de poucas chamadas.
+
 ### Tese de mercado por ZIP
 
 Além da matemática, o sistema classifica cada oportunidade pela tese de mercado

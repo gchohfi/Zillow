@@ -28,6 +28,8 @@ _ROW_FIELDS = (
     "market_region",
     "market_strategies",
     "risk_flags",
+    "growth_score",
+    "growth_signals",
     "address",
     "lat",
     "lng",
@@ -46,7 +48,7 @@ _ROW_FIELDS = (
 
 _FLOAT_FIELDS = {
     "lat", "lng", "distance_km", "land_price", "arv", "total_cost",
-    "profit", "margin", "land_to_total_investment",
+    "profit", "margin", "land_to_total_investment", "growth_score",
 }
 
 
@@ -125,7 +127,49 @@ def build_payload(cfg: Config, now: datetime | None = None) -> dict:
         "source": source,
         "total_rows": total,
         "rows": embedded,
+        "regions": _aggregate_regions(embedded),
     }
+
+
+def _aggregate_regions(rows: list[dict]) -> list[dict]:
+    """Agrega os sinais de crescimento por ZIP para os cards do dashboard.
+
+    As linhas chegam ordenadas da mais recente para a mais antiga, então o
+    primeiro valor visto de cada campo é o mais atual.
+    """
+    by_zip: dict[str, dict] = {}
+    for row in rows:
+        zip_code = row.get("zip_code") or ""
+        if not zip_code:
+            continue
+        group = by_zip.setdefault(zip_code, {
+            "zip": zip_code,
+            "region": "",
+            "priority": "",
+            "growth_score": None,
+            "growth_signals": "",
+            "viable": 0,
+            "radar": 0,
+            "total": 0,
+        })
+        group["total"] += 1
+        status = row.get("review_status", "")
+        if status == "viavel":
+            group["viable"] += 1
+        elif status.startswith("radar_"):
+            group["radar"] += 1
+        if not group["region"] and row.get("market_region"):
+            group["region"] = row["market_region"]
+        if not group["priority"] and row.get("market_priority"):
+            group["priority"] = row["market_priority"]
+        if group["growth_score"] is None and row.get("growth_score") is not None:
+            group["growth_score"] = row["growth_score"]
+            group["growth_signals"] = row.get("growth_signals", "")
+    return sorted(
+        by_zip.values(),
+        key=lambda g: (g["growth_score"] is not None, g["growth_score"] or 0, g["viable"]),
+        reverse=True,
+    )
 
 
 def generate_site(cfg: Config | None = None, out_dir: str | None = None) -> Path:
@@ -176,6 +220,9 @@ _TEMPLATE = """<!DOCTYPE html>
     --status-warning-text: #7a5200;
     --status-muted: #898781;
     --accent: #2a78d6;
+    --meter-track: #cde2fb;
+    --meter-fill: #2a78d6;
+    --chip-bg: #f0efec;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -189,6 +236,9 @@ _TEMPLATE = """<!DOCTYPE html>
       --status-good-text: #0ca30c;
       --status-warning-text: #fab219;
       --accent: #3987e5;
+      --meter-track: #184f95;
+      --meter-fill: #6da7ec;
+      --chip-bg: #2c2c2a;
     }
   }
   * { box-sizing: border-box; }
@@ -264,6 +314,34 @@ _TEMPLATE = """<!DOCTYPE html>
   .muted { color: var(--text-muted); }
   .small { font-size: 12px; }
   .empty { padding: 24px; color: var(--text-muted); text-align: center; }
+  .regions { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .region-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .region-card .zip { font-size: 16px; font-weight: 700; }
+  .region-card .name { color: var(--text-secondary); font-size: 12px; min-height: 30px; }
+  .meter-row { display: flex; align-items: center; gap: 8px; }
+  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--meter-track); overflow: hidden; }
+  .meter > span { display: block; height: 100%; border-radius: 4px; background: var(--meter-fill); }
+  .meter-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sig-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sig-chip {
+    background: var(--chip-bg);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .region-card .counts { color: var(--text-muted); font-size: 12px; margin-top: auto; }
+  .growth-cell { min-width: 110px; }
+  .growth-cell .meter { height: 6px; }
   footer { margin-top: 32px; color: var(--text-muted); font-size: 12px; }
   footer a { margin-right: 12px; }
 </style>
@@ -290,6 +368,13 @@ _TEMPLATE = """<!DOCTYPE html>
     <button class="chip" data-status="reprovado">Reprovadas</button>
     <input id="search" type="search" placeholder="Filtrar por endereço, ZIP, região…">
   </div>
+
+  <section id="sec-regions">
+    <h2>Crescimento por região</h2>
+    <p class="hint">Sinais estudados para identificar valorização: escolas e comércio próximos (OpenStreetMap)
+       e crescimento de população e renda em 5 anos (US Census). Score 0–10 por ZIP com avaliação recente.</p>
+    <div class="regions" id="region-cards"></div>
+  </section>
 
   <section>
     <h2>Mapa</h2>
@@ -378,6 +463,53 @@ function linkCell(r) {
 
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+const SIG_ICONS = [
+  [/escola/i, "\\u{1F3EB}"],
+  [/comercio/i, "\\u{1F6D2}"],
+  [/populacao/i, "\\u{1F465}"],
+  [/renda/i, "\\u{1F4B0}"],
+];
+function sigChips(signals) {
+  if (!signals) return "";
+  return signals.split(";").map(s => s.trim()).filter(Boolean).map(s => {
+    const icon = (SIG_ICONS.find(([re]) => re.test(s)) || [null, ""])[1];
+    return '<span class="sig-chip">' + icon + " " + esc(s) + "</span>";
+  }).join("");
+}
+
+function meterHtml(score) {
+  const pct = Math.max(0, Math.min(100, (score / 10) * 100));
+  return '<div class="meter-row"><div class="meter"><span style="width:' + pct.toFixed(0) +
+    '%"></span></div><span class="meter-value">' + score.toFixed(1) + '</span></div>';
+}
+
+function growthCell(r) {
+  if (r.growth_score == null) return '<span class="muted small">n/d</span>';
+  return '<div class="growth-cell" title="' + esc(r.growth_signals) + '">' +
+    meterHtml(r.growth_score) + "</div>";
+}
+
+function renderRegions() {
+  const el = document.getElementById("region-cards");
+  const regions = (DATA.regions || []).filter(g => g.growth_score != null);
+  if (!regions.length) {
+    document.getElementById("sec-regions").style.display = "none";
+    return;
+  }
+  el.innerHTML = regions.map(g =>
+    '<div class="region-card">' +
+      '<div><span class="zip">' + esc(g.zip) + "</span>" +
+      (g.priority ? ' <span class="badge radar" style="color:var(--text-muted)">' + esc(g.priority) + "</span>" : "") +
+      "</div>" +
+      '<div class="name">' + esc(g.region || "fora das regiões-alvo mapeadas") + "</div>" +
+      meterHtml(g.growth_score) +
+      '<div class="sig-chips">' + sigChips(g.growth_signals) + "</div>" +
+      '<div class="counts">' + g.viable + " viável(is) · " + g.radar + " radar · " +
+      g.total + " avaliação(ões) no período</div>" +
+    "</div>"
+  ).join("");
+}
+
 function badge(r) {
   const kind = r.kind;
   return '<span class="badge ' + kind + '"><span class="dot"></span>' + statusLabel(r.review_status) + '</span>';
@@ -397,6 +529,7 @@ const COLS = [
       (r.arv_source === "rentcast_avm" ? '<div class="small muted">comps</div>' : '<div class="small muted">premissa</div>'), num: true },
   { h: "Lucro", c: r => fmtMoney(r.profit), num: true },
   { h: "Margem", c: r => fmtPct(r.margin), num: true },
+  { h: "Região ↑", c: growthCell },
   { h: "Dist.", c: r => fmtKm(r.distance_km), num: true },
   { h: "Atenções", c: r => '<span class="small">' + esc(r.risk_flags) + "</span>" },
   { h: "Links", c: r => '<span class="links small">' + linkCell(r) + "</span>" },
@@ -465,6 +598,8 @@ function renderMarkers(visible) {
       statusLabel(r.review_status) + "<br>" +
       "Terreno: " + fmtMoney(r.land_price) + " · ARV: " + fmtMoney(r.arv) + "<br>" +
       "Lucro: " + fmtMoney(r.profit) + " (margem " + fmtPct(r.margin) + ")<br>" +
+      (r.growth_score != null ? "Crescimento região: " + r.growth_score.toFixed(1) + "/10<br>" : "") +
+      (r.growth_signals ? "Sinais: " + esc(r.growth_signals) + "<br>" : "") +
       (r.market_region ? "Mercado: " + esc(r.market_region) + "<br>" : "") +
       (r.risk_flags ? "Atenções: " + esc(r.risk_flags) + "<br>" : "") +
       linkCell(r);
@@ -492,6 +627,7 @@ document.getElementById("search").addEventListener("input", e => {
   renderAll();
 });
 
+renderRegions();
 renderAll();
 </script>
 </body>

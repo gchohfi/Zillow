@@ -62,3 +62,5 @@ class ViabilityResult:
     risk_flags: list[str] = field(default_factory=list)
     review_status: str = ""       # viavel, radar_zoneamento_pendente, radar_analise_manual, reprovado
     review_reason: str = ""
+    growth_score: Optional[float] = None            # 0-10, sinais de crescimento da região
+    growth_signals: dict[str, Any] = field(default_factory=dict)  # escolas, comércio, pop, renda
