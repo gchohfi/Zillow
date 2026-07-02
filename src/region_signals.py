@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ from typing import Any
 import requests
 
 from .config import Config
+
+_GEOCODER_USER_AGENT = "orlando-land-detector/1.0 (https://github.com/gchohfi/Zillow)"
 
 # Sentinelas do Census para "sem dado" (ex.: -666666666).
 _CENSUS_MISSING_THRESHOLD = -100_000
@@ -231,6 +234,112 @@ def get_region_signals(
         # Guarda mesmo parcial: evita repetir chamadas com falha a cada rodada.
         cache.put(zip_code, signals)
         return signals
+    finally:
+        if own_cache:
+            cache.close()
+
+
+def _geocode_zip(zip_code: str, section: dict[str, Any]) -> tuple[float, float] | None:
+    """Centroide aproximado de um ZIP via Nominatim (OpenStreetMap)."""
+    url = section.get("geocoder_url", "https://nominatim.openstreetmap.org/search")
+    timeout = float(section.get("timeout_seconds", 25))
+    resp = requests.get(
+        url,
+        params={
+            "postalcode": zip_code,
+            "country": "us",
+            "state": "florida",
+            "format": "json",
+            "limit": 1,
+        },
+        headers={"User-Agent": _GEOCODER_USER_AGENT},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, list) or not data:
+        return None
+    try:
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def thesis_zips(cfg: Config) -> list[str]:
+    """ZIPs das regiões-alvo definidas em market_strategy.zip_groups."""
+    zips: list[str] = []
+    for group in cfg.raw.get("market_strategy", {}).get("zip_groups", []):
+        for zip_code in group.get("zips", []):
+            code = str(zip_code)
+            if code not in zips:
+                zips.append(code)
+    return zips
+
+
+def prefetch_config_zips(cfg: Config, cache: SignalsCache | None = None) -> int:
+    """Pré-carrega sinais de todos os ZIPs das teses; retorna quantos buscou.
+
+    Só consulta o que não está em cache (ou está em cache sem os dados de
+    escolas/comércio, ex.: buscado antes sem coordenada). Respeita o limite
+    de uso do Nominatim com uma pausa entre geocodificações.
+    """
+    section = cfg.raw.get("region_signals", {})
+    if not section.get("enabled", False) or not section.get("prefetch_thesis_zips", False):
+        return 0
+
+    max_age_days = float(section.get("cache_days", 30) or 30)
+    pause = float(section.get("prefetch_pause_seconds", 1.1))
+    own_cache = cache is None
+    cache = cache or SignalsCache(section.get("cache_db", "region_signals.db"))
+    fetched = 0
+    try:
+        for zip_code in thesis_zips(cfg):
+            cached = cache.get(zip_code, max_age_days)
+            if cached is not None and cached.get("schools") is not None:
+                continue
+            try:
+                coords = _geocode_zip(zip_code, section)
+            except (requests.RequestException, ValueError) as exc:
+                print(f"  [aviso] geocodificacao falhou para ZIP {zip_code}: {type(exc).__name__}")
+                coords = None
+            if coords is None:
+                continue
+            if cached is not None:
+                # Cache parcial (sem Overpass): remove para refazer completo.
+                cache.conn.execute("DELETE FROM region_signals WHERE zip = ?", (zip_code,))
+                cache.conn.commit()
+            signals = get_region_signals(zip_code, coords[0], coords[1], cfg, cache=cache)
+            if signals is not None:
+                fetched += 1
+            time.sleep(pause)
+        if fetched:
+            print(f"  [sinais] pre-carregados {fetched} ZIP(s) das regioes-alvo")
+        return fetched
+    finally:
+        if own_cache:
+            cache.close()
+
+
+def cached_signals_for_zips(
+    zips: list[str], cfg: Config, cache: SignalsCache | None = None
+) -> dict[str, dict[str, Any]]:
+    """Lê do cache (sem rede) os sinais disponíveis para uma lista de ZIPs."""
+    section = cfg.raw.get("region_signals", {})
+    if not section.get("enabled", False):
+        return {}
+    max_age_days = float(section.get("cache_days", 30) or 30)
+    own_cache = cache is None
+    try:
+        cache = cache or SignalsCache(section.get("cache_db", "region_signals.db"))
+    except sqlite3.Error:
+        return {}
+    try:
+        result: dict[str, dict[str, Any]] = {}
+        for zip_code in zips:
+            cached = cache.get(str(zip_code), max_age_days)
+            if cached is not None:
+                result[str(zip_code)] = cached
+        return result
     finally:
         if own_cache:
             cache.close()

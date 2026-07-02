@@ -109,3 +109,30 @@ def test_build_payload_filters_by_period(tmp_path):
     addresses = [row["address"] for row in payload["rows"]]
     assert "Nova" in addresses
     assert "Antiga" not in addresses
+
+
+def test_regions_include_prefetched_thesis_zips(tmp_path):
+    from src.region_signals import SignalsCache
+
+    cfg = _cfg(tmp_path)
+    cfg.raw["market_strategy"] = {"zip_groups": [
+        {"label": "Lake Nona", "priority": "Alta", "zips": ["32827"]},
+    ]}
+    cfg.raw["region_signals"] = {
+        "enabled": True,
+        "cache_db": str(tmp_path / "signals.db"),
+        "cache_days": 30,
+    }
+    cache = SignalsCache(str(tmp_path / "signals.db"))
+    cache.put("32827", {"score": 8.1, "summary": ["6 escolas em 3 km", "renda +20.0% em 5 anos"]})
+    cache.close()
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "review_status": "viavel", "address": "X", "zip_code": "34787"},
+    ])
+
+    payload = build_payload(cfg)
+    zips = {g["zip"]: g for g in payload["regions"]}
+    assert "32827" in zips
+    assert zips["32827"]["region"] == "Lake Nona"
+    assert zips["32827"]["growth_score"] == 8.1
+    assert "escolas" in zips["32827"]["growth_signals"]

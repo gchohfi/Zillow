@@ -127,3 +127,43 @@ def test_get_region_signals_fails_open(tmp_path, monkeypatch):
 def test_get_region_signals_disabled_or_no_zip(tmp_path):
     assert get_region_signals("34787", 28.5, -81.4, _cfg(tmp_path, enabled=False)) is None
     assert get_region_signals(None, 28.5, -81.4, _cfg(tmp_path)) is None
+
+
+def test_prefetch_config_zips_geocodes_and_caches(tmp_path, monkeypatch):
+    from src.region_signals import prefetch_config_zips
+
+    cfg = _cfg(tmp_path, prefetch_thesis_zips=True, prefetch_pause_seconds=0)
+    cfg.raw["market_strategy"] = {"zip_groups": [
+        {"label": "Lake Nona", "priority": "Alta", "zips": ["32827", "32832"]},
+    ]}
+
+    monkeypatch.setattr("src.region_signals._geocode_zip", lambda z, s: (28.4, -81.25))
+    monkeypatch.setattr(
+        "src.region_signals._fetch_overpass_counts", lambda lat, lng, r, s: (4, 20)
+    )
+    monkeypatch.setattr(
+        "src.region_signals._fetch_census_acs",
+        lambda z, year, s: (50000.0, 80000.0) if year == 2018 else (56000.0, 95000.0),
+    )
+
+    assert prefetch_config_zips(cfg) == 2
+    # Segunda chamada: tudo em cache, nada novo.
+    assert prefetch_config_zips(cfg) == 0
+
+
+def test_prefetch_disabled_returns_zero(tmp_path):
+    from src.region_signals import prefetch_config_zips
+    assert prefetch_config_zips(_cfg(tmp_path, prefetch_thesis_zips=False)) == 0
+
+
+def test_cached_signals_for_zips_reads_without_network(tmp_path):
+    from src.region_signals import cached_signals_for_zips
+
+    cfg = _cfg(tmp_path)
+    cache = SignalsCache(str(tmp_path / "signals.db"))
+    cache.put("32827", {"score": 7.2, "summary": ["4 escolas em 3 km"]})
+    cache.close()
+
+    result = cached_signals_for_zips(["32827", "99999"], cfg)
+    assert result["32827"]["score"] == 7.2
+    assert "99999" not in result

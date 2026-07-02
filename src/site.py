@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Config
+from .region_signals import cached_signals_for_zips
 
 MAX_EMBEDDED_ROWS = 1000
 
@@ -132,7 +133,7 @@ def build_payload(cfg: Config, now: datetime | None = None) -> dict:
         "source": source,
         "total_rows": total,
         "rows": embedded,
-        "regions": _aggregate_regions(embedded),
+        "regions": _merge_thesis_regions(_aggregate_regions(embedded), cfg),
     }
 
 
@@ -170,6 +171,54 @@ def _aggregate_regions(rows: list[dict]) -> list[dict]:
         if group["growth_score"] is None and row.get("growth_score") is not None:
             group["growth_score"] = row["growth_score"]
             group["growth_signals"] = row.get("growth_signals", "")
+    return sorted(
+        by_zip.values(),
+        key=lambda g: (g["growth_score"] is not None, g["growth_score"] or 0, g["viable"]),
+        reverse=True,
+    )
+
+
+def _merge_thesis_regions(regions: list[dict], cfg: Config) -> list[dict]:
+    """Completa a seção de regiões com os ZIPs das teses já em cache.
+
+    Assim o potencial da região aparece no dashboard mesmo antes de surgir
+    uma oportunidade naquele ZIP (o pipeline pré-carrega o cache).
+    """
+    zip_meta: dict[str, tuple[str, str]] = {}
+    for group in cfg.raw.get("market_strategy", {}).get("zip_groups", []):
+        label = group.get("label") or group.get("name") or ""
+        priority = group.get("priority", "")
+        for zip_code in group.get("zips", []):
+            zip_meta[str(zip_code)] = (label, priority)
+    if not zip_meta:
+        return regions
+
+    cached = cached_signals_for_zips(list(zip_meta), cfg)
+    by_zip = {group["zip"]: group for group in regions}
+    for zip_code, signals in cached.items():
+        if signals.get("score") is None:
+            continue
+        entry = by_zip.get(zip_code)
+        if entry is None:
+            entry = {
+                "zip": zip_code,
+                "region": "",
+                "priority": "",
+                "growth_score": None,
+                "growth_signals": "",
+                "viable": 0,
+                "radar": 0,
+                "total": 0,
+            }
+            by_zip[zip_code] = entry
+        if entry["growth_score"] is None:
+            entry["growth_score"] = signals.get("score")
+            entry["growth_signals"] = "; ".join(signals.get("summary", []))
+        label, priority = zip_meta[zip_code]
+        if not entry["region"]:
+            entry["region"] = label
+        if not entry["priority"]:
+            entry["priority"] = priority
     return sorted(
         by_zip.values(),
         key=lambda g: (g["growth_score"] is not None, g["growth_score"] or 0, g["viable"]),
@@ -473,6 +522,7 @@ _TEMPLATE = """<!DOCTYPE html>
     <h2>Crescimento por região</h2>
     <p class="hint">Sinais de valorização: escolas e comércio próximos (OpenStreetMap), população e renda em 5 anos (US Census). Score 0–10 por ZIP.</p>
     <div class="regions" id="region-cards"></div>
+    <button class="show-more" id="show-more-regions" style="display:none"></button>
   </section>
 
   <details class="tbl">
@@ -661,6 +711,10 @@ document.getElementById("show-more").addEventListener("click", () => {
   showAllCards = true;
   renderAll();
 });
+document.getElementById("show-more-regions").addEventListener("click", () => {
+  showAllRegions = true;
+  renderRegions();
+});
 
 // ---- Tabela completa (recolhida) ----
 const COLS = [
@@ -695,14 +749,25 @@ function renderTable(el, data, emptyMsg) {
   el.innerHTML = head + body;
 }
 
+let showAllRegions = false;
+const REGION_LIMIT = 8;
+
 function renderRegions() {
   const el = document.getElementById("region-cards");
+  const more = document.getElementById("show-more-regions");
   const regions = (DATA.regions || []).filter(g => g.growth_score != null);
   if (!regions.length) {
     document.getElementById("sec-regions").style.display = "none";
     return;
   }
-  el.innerHTML = regions.map(g =>
+  const shown = showAllRegions ? regions : regions.slice(0, REGION_LIMIT);
+  if (regions.length > REGION_LIMIT && !showAllRegions) {
+    more.textContent = "Mostrar todas as " + regions.length + " regiões";
+    more.style.display = "block";
+  } else {
+    more.style.display = "none";
+  }
+  el.innerHTML = shown.map(g =>
     '<div class="region-card">' +
       '<div><span class="zip">' + esc(g.zip) + "</span>" +
       (g.priority ? ' <span class="small muted">' + esc(g.priority) + "</span>" : "") +

@@ -121,6 +121,8 @@ region_signals:
   census_latest_year: 2023     # ACS 5 anos mais recente
   census_base_year: 2018       # base de comparação (5 anos antes)
   timeout_seconds: 25
+  prefetch_thesis_zips: true   # pré-carrega os ZIPs das regiões-alvo (1x, fica em cache)
+  prefetch_pause_seconds: 1.1  # pausa entre geocodificações (política do Nominatim)
 
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
