@@ -11,7 +11,7 @@ from .datasource import get_source
 from .geo import within_radius
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
 from .red_flags import apply_red_flags
-from .region_signals import SignalsCache, get_region_signals
+from .region_signals import SignalsCache, get_region_signals, prefetch_config_zips
 from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
 from .storage import SeenStore
@@ -182,7 +182,13 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         )
         send_whatsapp_status(summary, dry_run=dry_run)
 
+    # Depois dos alertas (para não atrasá-los), completa os sinais das
+    # regiões-alvo que ainda não estão em cache — alimenta o dashboard.
     if signals_cache is not None:
+        try:
+            prefetch_config_zips(cfg, cache=signals_cache)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [aviso] pre-carga de sinais falhou: {type(exc).__name__}")
         signals_cache.close()
     store.close()
 
