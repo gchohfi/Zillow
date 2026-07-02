@@ -7,17 +7,17 @@ from src.config import Config
 from src.models import Listing
 
 
-def _cfg() -> Config:
-    return Config(raw={
-        "availability": {
-            "require_status_active": True,
-            "allowed_statuses": ["Active"],
-            "reject_removed": True,
-            "max_last_seen_hours": 36,
-            "max_listed_age_days": 3,
-            "require_mls_number": True,
-        }
-    })
+def _cfg(**overrides) -> Config:
+    availability = {
+        "require_status_active": True,
+        "allowed_statuses": ["Active"],
+        "reject_removed": True,
+        "max_last_seen_hours": 36,
+        "max_listed_age_days": 3,
+        "require_mls_number": True,
+    }
+    availability.update(overrides)
+    return Config(raw={"availability": availability})
 
 
 def _listing(**raw):
@@ -60,4 +60,12 @@ def test_stale_listing_fails_availability():
 def test_missing_mls_fails_availability():
     ok, reasons = check_availability(_listing(mlsNumber=None), _cfg())
     assert not ok
+    assert any("MLS ausente" in reason for reason in reasons)
+
+
+def test_missing_mls_warns_but_passes_when_not_required():
+    ok, reasons = check_availability(
+        _listing(mlsNumber=None), _cfg(require_mls_number=False)
+    )
+    assert ok
     assert any("MLS ausente" in reason for reason in reasons)

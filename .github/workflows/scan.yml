@@ -18,12 +18,17 @@ concurrency:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 jobs:
   scan:
     name: Scan land listings
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     env:
       PYTHONUNBUFFERED: "1"
@@ -81,6 +86,13 @@ jobs:
           fi
           exit "$missing"
 
+      - name: Set dashboard URL
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY%/*}"
+          name="${GITHUB_REPOSITORY#*/}"
+          echo "DASHBOARD_URL=https://${owner,,}.github.io/${name}/" >> "$GITHUB_ENV"
+
       - name: Run scanner
         shell: bash
         run: |
@@ -89,6 +101,27 @@ jobs:
           else
             python -m src.main
           fi
+
+      - name: Build dashboard site
+        if: always()
+        run: python -m src.site
+
+      - name: Configure GitHub Pages
+        if: always()
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload dashboard to Pages
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy dashboard to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
 
       - name: Save scanner memory
         if: ${{ always() && hashFiles('seen_listings.db') != '' }}

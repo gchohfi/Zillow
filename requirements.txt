@@ -4,5 +4,5 @@ PyYAML>=6.0
 python-dotenv>=1.0
 usaddress>=0.5.10
 pandas>=2.0
-streamlit>=1.35
+streamlit>=1.47   # dashboard.py usa st.dataframe(width="stretch")
 folium>=0.16
