@@ -16,6 +16,7 @@ from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
 from .storage import SeenStore
 from .viability import evaluate
+from .zoning import ZoningCache, enrich_zoning
 
 
 def _format_run_summary(
@@ -95,6 +96,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     if signals_cfg.get("enabled", False) and not use_mock:
         signals_cache = SignalsCache(signals_cfg.get("cache_db", "region_signals.db"))
 
+    zoning_cfg = cfg.raw.get("zoning_lookup", {})
+    zoning_cache = None
+    n_zoning_confirmed = 0
+    if zoning_cfg.get("enabled", False) and not use_mock:
+        zoning_cache = ZoningCache(zoning_cfg.get("cache_db", "region_signals.db"))
+
     for listing in listings:
         inside, dist = within_radius(
             center_lat, center_lng, listing.lat, listing.lng, radius_km
@@ -114,6 +121,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             if not is_available:
                 n_unavailable += 1
                 continue
+
+        if zoning_cache is not None and not listing.zoning:
+            zoning_note = enrich_zoning(listing, cfg, cache=zoning_cache)
+            if zoning_note:
+                availability_reasons.append(zoning_note)
+                n_zoning_confirmed += 1
 
         if not use_mock:
             enrich_arv(listing, cfg)
@@ -149,6 +162,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
           f"indisponíveis/provavelmente antigas: {n_unavailable} | "
           f"radar: {len(radar_candidates)} | reprovadas: {n_not_viable} | falhas: {n_failed} | "
           f"viáveis NOVOS: {len(viable_new)}")
+    if zoning_cache is not None:
+        print(f"  [zoning] uso do solo confirmado via GIS: {n_zoning_confirmed}")
 
     # Grava as oportunidades viáveis na planilha CSV.
     csv_path = cfg.raw.get("output", {}).get("csv_path")
@@ -190,6 +205,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"  [aviso] pre-carga de sinais falhou: {type(exc).__name__}")
         signals_cache.close()
+    if zoning_cache is not None:
+        zoning_cache.close()
     store.close()
 
 

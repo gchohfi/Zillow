@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # branch 'data' guarda a memória do scanner entre rodadas
   pages: write
   id-token: write
 
@@ -74,6 +74,22 @@ jobs:
           key: orlando-land-state-${{ github.run_id }}
           restore-keys: |
             orlando-land-state-
+
+      - name: Restore state from data branch (fallback)
+        shell: bash
+        run: |
+          # O cache do Actions pode ser despejado (~7 dias sem uso). O branch
+          # 'data' é a cópia permanente: se o cache falhou, restaura de lá e
+          # evita uma enxurrada de alertas repetidos.
+          if [ ! -f seen_listings.db ] && git fetch origin data 2>/dev/null; then
+            git checkout origin/data -- state/ 2>/dev/null || true
+            if [ -d state ]; then
+              cp -n state/* . 2>/dev/null || true
+              git restore --staged state 2>/dev/null || true
+              rm -rf state
+              echo "estado restaurado do branch data"
+            fi
+          fi
 
       - name: Check required secrets
         shell: bash
@@ -149,3 +165,31 @@ jobs:
             seen_listings.db
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Persist state to data branch
+        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
+        shell: bash
+        run: |
+          # Último passo do job: troca de branch é segura porque nada mais
+          # roda depois. Guarda a memória do scanner de forma permanente.
+          set -e
+          mkdir -p /tmp/state
+          for f in seen_listings.db region_signals.db opportunities.csv evaluations.csv; do
+            [ -f "$f" ] && cp "$f" /tmp/state/
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin data 2>/dev/null; then
+            git checkout -f -B data origin/data
+          else
+            git checkout --orphan data
+            git rm -rf --quiet . 2>/dev/null || true
+          fi
+          mkdir -p state
+          cp /tmp/state/* state/
+          git add -f state
+          if git commit -m "Atualizar estado do scanner ($(date -u +%Y-%m-%dT%H:%MZ))"; then
+            git push origin data
+          else
+            echo "estado sem mudanças; nada a publicar"
+          fi
