@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from src.config import Config
 from src.region_signals import (
     SignalsCache,
@@ -23,7 +25,10 @@ def _cfg(tmp_path, **overrides):
         "fetch_pause_seconds": 0,
     }
     section.update(overrides)
-    return Config(raw={"region_signals": section})
+    return Config(raw={
+        "region_signals": section,
+        "output": {"evaluations_csv_path": str(tmp_path / "evaluations.csv")},
+    })
 
 
 def test_compute_score_full_signals():
@@ -237,3 +242,54 @@ def test_recent_failure_is_not_hammered(tmp_path, monkeypatch):
     signals = get_region_signals("34787", 28.47, -81.62, cfg, cache=cache)
     assert signals["score"] is None
     cache.close()
+
+
+def test_zip_centroids_from_csv(tmp_path):
+    from src.region_signals import _zip_centroids_from_csv
+
+    cfg = _cfg(tmp_path)
+    with open(tmp_path / "evaluations.csv", "w", encoding="utf-8") as fh:
+        fh.write("zip_code,lat,lng\n34787,28.4,-81.6\n34787,28.6,-81.8\n,28.0,-81.0\n")
+
+    centroids = _zip_centroids_from_csv(cfg)
+    assert centroids["34787"] == pytest.approx((28.5, -81.7))
+    assert len(centroids) == 1
+
+
+def test_geocode_falls_back_to_photon(tmp_path, monkeypatch):
+    from src.region_signals import _geocode_zip
+    import requests as req
+
+    def fake_get(url, params=None, timeout=None, **kwargs):
+        if "nominatim" in url:
+            raise req.HTTPError("403 Forbidden")
+        return _FakeResponse({"features": [
+            {"geometry": {"coordinates": [-81.62, 28.47]}}
+        ]})
+
+    monkeypatch.setattr("src.region_signals.requests.get", fake_get)
+    assert _geocode_zip("34787", {}) == (28.47, -81.62)
+
+
+def test_prefetch_uses_local_centroids_before_geocoder(tmp_path, monkeypatch):
+    from src.region_signals import prefetch_config_zips
+
+    cfg = _cfg(tmp_path, prefetch_thesis_zips=True, prefetch_pause_seconds=0)
+    cfg.raw["market_strategy"] = {"zip_groups": [
+        {"label": "Horizon West", "priority": "Alta", "zips": ["34787"]},
+    ]}
+    with open(tmp_path / "evaluations.csv", "w", encoding="utf-8") as fh:
+        fh.write("zip_code,lat,lng\n34787,28.47,-81.62\n")
+
+    def no_geocode(*args, **kwargs):
+        raise AssertionError("nao deveria geocodificar ZIP com centroide local")
+
+    monkeypatch.setattr("src.region_signals._geocode_zip", no_geocode)
+    monkeypatch.setattr(
+        "src.region_signals._fetch_overpass_counts", lambda lat, lng, r, s: (4, 20)
+    )
+    monkeypatch.setattr(
+        "src.region_signals._fetch_census_acs",
+        lambda z, year, s: (50000.0, 80000.0) if year == 2018 else (56000.0, 95000.0),
+    )
+    assert prefetch_config_zips(cfg) == 1

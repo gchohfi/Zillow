@@ -11,7 +11,9 @@ então o custo por rodada é de poucas chamadas.
 
 from __future__ import annotations
 
+import csv
 import json
+import os
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -281,29 +283,78 @@ def get_region_signals(
 
 
 def _geocode_zip(zip_code: str, section: dict[str, Any]) -> tuple[float, float] | None:
-    """Centroide aproximado de um ZIP via Nominatim (OpenStreetMap)."""
-    url = section.get("geocoder_url", "https://nominatim.openstreetmap.org/search")
+    """Centroide aproximado de um ZIP: Nominatim, com Photon como reserva.
+
+    IPs de CI são frequentemente bloqueados pelo Nominatim; o Photon
+    (também baseado em OpenStreetMap) costuma aceitar.
+    """
     timeout = float(section.get("timeout_seconds", 25))
+    headers = {"User-Agent": _GEOCODER_USER_AGENT}
+
+    url = section.get("geocoder_url", "https://nominatim.openstreetmap.org/search")
+    try:
+        resp = requests.get(
+            url,
+            params={
+                "postalcode": zip_code,
+                "country": "us",
+                "state": "florida",
+                "format": "json",
+                "limit": 1,
+            },
+            headers=headers,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list) and data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        pass
+
+    photon_url = section.get("photon_url", "https://photon.komoot.io/api/")
     resp = requests.get(
-        url,
-        params={
-            "postalcode": zip_code,
-            "country": "us",
-            "state": "florida",
-            "format": "json",
-            "limit": 1,
-        },
-        headers={"User-Agent": _GEOCODER_USER_AGENT},
+        photon_url,
+        params={"q": f"{zip_code} Florida USA", "limit": 1},
+        headers=headers,
         timeout=timeout,
     )
     resp.raise_for_status()
     data = resp.json()
-    if not isinstance(data, list) or not data:
+    features = data.get("features") or []
+    if not features:
         return None
     try:
-        return float(data[0]["lat"]), float(data[0]["lon"])
-    except (KeyError, TypeError, ValueError):
+        lng, lat = features[0]["geometry"]["coordinates"][:2]
+        return float(lat), float(lng)
+    except (KeyError, TypeError, ValueError, IndexError):
         return None
+
+
+def _zip_centroids_from_csv(cfg: Config) -> dict[str, tuple[float, float]]:
+    """Centroides por ZIP a partir das avaliações já registradas (sem rede)."""
+    path = cfg.raw.get("output", {}).get("evaluations_csv_path", "evaluations.csv")
+    if not path or not os.path.exists(path):
+        return {}
+    sums: dict[str, list[float]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                zip_code = str(row.get("zip_code") or "").strip()
+                try:
+                    lat = float(row.get("lat") or "")
+                    lng = float(row.get("lng") or "")
+                except (TypeError, ValueError):
+                    continue
+                if not zip_code or not lat or not lng:
+                    continue
+                acc = sums.setdefault(zip_code, [0.0, 0.0, 0.0])
+                acc[0] += lat
+                acc[1] += lng
+                acc[2] += 1
+    except OSError:
+        return {}
+    return {z: (acc[0] / acc[2], acc[1] / acc[2]) for z, acc in sums.items() if acc[2]}
 
 
 def thesis_zips(cfg: Config) -> list[str]:
@@ -333,16 +384,21 @@ def prefetch_config_zips(cfg: Config, cache: SignalsCache | None = None) -> int:
     own_cache = cache is None
     cache = cache or SignalsCache(section.get("cache_db", "region_signals.db"))
     fetched = 0
+    csv_centroids = _zip_centroids_from_csv(cfg)
     try:
         for zip_code in thesis_zips(cfg):
             cached = cache.get(zip_code, max_age_days)
             if cached is not None and cached.get("schools") is not None:
                 continue
-            try:
-                coords = _geocode_zip(zip_code, section)
-            except (requests.RequestException, ValueError) as exc:
-                print(f"  [aviso] geocodificacao falhou para ZIP {zip_code}: {type(exc).__name__}")
-                coords = None
+            # Coordenada local (terrenos já vistos no ZIP) evita geocodificar.
+            coords = csv_centroids.get(zip_code)
+            if coords is None:
+                try:
+                    coords = _geocode_zip(zip_code, section)
+                except (requests.RequestException, ValueError) as exc:
+                    print(f"  [aviso] geocodificacao falhou para ZIP {zip_code}: {type(exc).__name__}")
+                    coords = None
+                time.sleep(pause)
             if coords is None:
                 continue
             if cached is not None:
