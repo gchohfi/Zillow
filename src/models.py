@@ -50,6 +50,8 @@ class ViabilityResult:
     land_to_total_investment: float
     is_viable: bool
     tier: str = ""                                      # segmento: baixo/médio/alto padrão
+    site_prep_cost: float = 0.0    # preparação do lote (limpeza, aterro, conexões)
+    impact_fees: float = 0.0       # taxas de impacto do county
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou
     arv_source: str = "config"
     arv_comps_count: Optional[int] = None

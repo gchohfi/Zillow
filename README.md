@@ -328,6 +328,8 @@ ARV (valor de revenda da casa pronta)   = RentCast AVM/comps, ou fallback preço
 − Custos "soft" (projeto, licenças)      = soft_cost_pct × custo_construção
 − Closing da compra do terreno           = purchase_closing_pct × terreno
 − Contingência de obra                    = contingency_pct × construção
+− Preparação do lote                      = site_prep_cost (limpeza, aterro, conexões)
+− Impact fees do county                   = impact_fees (por unidade)
 − Custos de carrego (juros, IPTU, seguro)= carrying_cost_annual_pct × meses/12 × (terreno + construção)
 − Custos de venda (comissão + closing)   = selling_cost_pct × ARV
 = LUCRO estimado
@@ -345,6 +347,20 @@ Terreno/investimento total = Preço do terreno / Custo total estimado
 - Listagens com preço zerado ou inválido são descartadas antes de gerar alerta
 - Zoneamento deve permitir residencial; se `require_known_zoning` estiver ligado,
   zoneamento ausente também bloqueia alerta automático
+
+Além disso:
+
+- **Preparação do lote e impact fees** entram na conta por segmento
+  (`costs.site_prep_cost` / `costs.impact_fees`). Os valores padrão são
+  estimativas de mercado de Central FL — **calibre com os seus números**
+  (0 desliga). Eles apertam a régua de propósito: eram custos reais que a
+  fórmula ignorava.
+- **Trava de qualidade do ARV**: comps agora exigem mínimo de 5
+  (`arv.min_comps`); AVM com confiança baixa acima da premissa fica
+  **limitado à premissa** (`arv.cap_confidences`), evitando falso positivo
+  por AVM otimista.
+- **Lote mínimo por segmento**: médio padrão exige 7.000 sqft (casa de
+  2.200 sqft + recuos), alto padrão 12.000 sqft.
 
 Todos esses números são **seus** — edite `config.yaml`.
 

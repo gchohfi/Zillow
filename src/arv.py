@@ -95,9 +95,24 @@ def enrich_arv(listing: Listing, cfg: Config) -> None:
         )
         return
 
+    confidence = str(data.get("confidenceScore") or data.get("confidence") or "")
+
+    # Trava de qualidade: como as aprovações dependem do ARV dos comps, um AVM
+    # otimista com confiança baixa é o caminho mais provável para falso
+    # positivo. Nesses casos o ARV fica limitado à premissa do config.
+    cap_confidences = {
+        str(c).lower() for c in arv_cfg.get("cap_confidences", ["low"])
+    }
+    config_arv = float(build["resale_price_per_sqft"]) * living_area
+    if confidence.lower() in cap_confidences and value > config_arv:
+        print(
+            f"  [aviso] AVM com confiança '{confidence}' acima da premissa; "
+            f"usando premissa US$ {config_arv:,.0f} para {listing.id or listing.address}"
+        )
+        value = config_arv
+        confidence = f"{confidence} (limitado à premissa)"
+
     listing.arv_estimate = value
     listing.arv_source = "rentcast_avm"
     listing.arv_comps_count = len(comps)
-    listing.arv_confidence = str(data.get("confidenceScore") or data.get("confidence") or "")
-    if listing.arv_confidence == "":
-        listing.arv_confidence = None
+    listing.arv_confidence = confidence or None

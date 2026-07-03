@@ -107,6 +107,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     soft_cost = float(costs["soft_cost_pct"]) * construction_cost
     purchase_closing_cost = float(costs.get("purchase_closing_pct", 0)) * land_cost
     contingency_cost = float(costs.get("contingency_pct", 0)) * construction_cost
+    site_prep_cost = float(costs.get("site_prep_cost", 0) or 0)
+    impact_fees = float(costs.get("impact_fees", 0) or 0)
     if "carrying_cost_annual_pct" in costs:
         carrying_pct = float(costs["carrying_cost_annual_pct"]) * (
             float(costs.get("carrying_months", 12)) / 12
@@ -122,6 +124,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         + soft_cost
         + purchase_closing_cost
         + contingency_cost
+        + site_prep_cost
+        + impact_fees
         + carrying_cost
         + selling_cost
     )
@@ -136,6 +140,11 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     market = classify_market(listing, cfg)
     if tier_label:
         reasons.append(f"• segmento: {tier_label}")
+    if site_prep_cost or impact_fees:
+        reasons.append(
+            f"• custos de lote: US$ {site_prep_cost:,.0f} preparação"
+            f" + US$ {impact_fees:,.0f} impact fees"
+        )
     if market["region"]:
         reasons.append(
             f"• mercado: {market['priority']} - {market['region']}"
@@ -220,6 +229,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         soft_cost=soft_cost,
         purchase_closing_cost=purchase_closing_cost,
         contingency_cost=contingency_cost,
+        site_prep_cost=site_prep_cost,
+        impact_fees=impact_fees,
         carrying_cost=carrying_cost,
         selling_cost=selling_cost,
         total_cost=total_cost,
