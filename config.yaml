@@ -98,6 +98,24 @@ red_flags:
     block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
     high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
 
+# ---- Confirmação de zoneamento/uso do solo via GIS público ----
+# Quando a listagem vem sem zoneamento, consulta camadas ArcGIS públicas por
+# ponto e preenche o zoneamento antes da avaliação: residencial confirmado
+# vira oportunidade; comercial/industrial confirmado é reprovado; falha de
+# GIS mantém o comportamento atual (Radar). As fontes são tentadas em ordem
+# e novas (ex.: GIS de county) podem ser adicionadas aqui sem mexer no código.
+zoning_lookup:
+  enabled: true
+  cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
+  cache_days: 90
+  timeout_seconds: 15
+  sources:
+    - name: fl_parcelas_estaduais
+      # Parcelas estaduais da Flórida (FGIO) com códigos de uso DOR
+      # padronizados. Se a URL mudar, basta atualizar aqui.
+      query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Parcels/FeatureServer/0/query
+      fields: [PARUSEDESC, DOR_UC]   # texto primeiro; código DOR como reserva
+
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
 # números passam e o bloqueio é due diligence (ex.: zoneamento desconhecido).

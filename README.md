@@ -117,10 +117,13 @@ Secrets principais:
 | `SMTP_*` / `ALERT_EMAIL_TO` | Opcional | Alertas por e-mail |
 | `TELEGRAM_*` | Opcional | Alertas por Telegram |
 
-O workflow restaura e salva `seen_listings.db`, `opportunities.csv` e
-`evaluations.csv` usando cache do GitHub Actions. Isso evita que a nuvem esqueça
-o que já foi visto entre uma rodada e outra. Os CSVs e o banco também são
-enviados como artifacts por 14 dias para auditoria.
+O workflow restaura e salva `seen_listings.db`, `region_signals.db`,
+`opportunities.csv` e `evaluations.csv` usando cache do GitHub Actions, e
+também **grava uma cópia permanente no branch `data` do repositório** ao fim
+de cada rodada. Se o cache for despejado (o GitHub apaga caches após ~7 dias
+sem uso), o estado é restaurado do branch `data` automaticamente — sem isso, a
+rodada seguinte trataria tudo como novo e dispararia alertas repetidos. Os
+CSVs e o banco também são enviados como artifacts por 14 dias para auditoria.
 
 Para mudar a frequência, edite o cron no workflow:
 
@@ -161,6 +164,16 @@ true` faz com que listagens sem zoneamento sejam bloqueadas antes do alerta,
 em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
+
+**Confirmação automática via GIS:** quando a listagem vem sem zoneamento, o
+sistema consulta camadas ArcGIS públicas por coordenada (por padrão as
+parcelas estaduais da Flórida, com códigos de uso DOR padronizados) e
+preenche o uso do solo antes da avaliação (`config.yaml → zoning_lookup`).
+Residencial confirmado vira oportunidade viável direto no WhatsApp;
+comercial/industrial/conservação é reprovado sem revisão manual; falha de
+GIS mantém o comportamento atual (Radar). O resultado fica em cache por 90
+dias e novas fontes (ex.: GIS de um county) podem ser adicionadas só no
+config, sem mexer em Python.
 
 ### Normalização de endereço e red flags
 
