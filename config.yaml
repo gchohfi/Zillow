@@ -26,6 +26,9 @@ costs:
   carrying_cost_annual_pct: 0.09  # juros + IPTU + seguro anualizados (% sobre terreno+obra)
   carrying_months: 12          # prazo estimado do projeto para custo de carrego
   selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
+  # AJUSTE COM SEUS NÚMEROS (estimativas de mercado de Central FL; 0 desliga):
+  site_prep_cost: 15000        # preparação do lote: limpeza, aterro, conexões, driveway (USD)
+  impact_fees: 20000           # taxas de impacto do county por unidade (USD)
 
 # ---- ARV por comps reais (RentCast AVM) ----
 # Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
@@ -38,7 +41,8 @@ arv:
   max_radius_miles: 2
   days_old: 180
   comp_count: 10
-  min_comps: 3
+  min_comps: 5                 # menos que isso, volta para a premissa fixa
+  cap_confidences: [low]       # com confiança baixa, o ARV fica limitado à premissa
   timeout_seconds: 20
 
 # ---- Regras de corte (o que é "viável") ----
@@ -239,6 +243,9 @@ tiers:
       bathrooms: 2
       construction_cost_per_sqft: 120
       resale_price_per_sqft: 225   # ARV crítico aproximado: US$ 315.000
+    costs:
+      site_prep_cost: 25000    # lote barato costuma ser rural: poço/fossa mais prováveis
+      impact_fees: 15000       # counties rurais tendem a cobrar menos
     rules:
       max_land_price: 50000
       target_margin: 0.18
@@ -254,6 +261,7 @@ tiers:
       resale_price_per_sqft: 330
     rules:
       target_margin: 0.18
+      min_lot_size_sqft: 7000  # casa de 2200 sqft + recuos não cabe em lote menor
 
   - name: alto_padrao
     label: "Alto padrão"
@@ -266,6 +274,7 @@ tiers:
       resale_price_per_sqft: 520
     costs:
       selling_cost_pct: 0.08
+      site_prep_cost: 30000    # lote premium: paisagismo/preparação mais caros
     rules:
       target_margin: 0.22
       min_lot_size_sqft: 12000

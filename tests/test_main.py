@@ -5,6 +5,15 @@ from src.main import _format_run_summary, run
 from src.models import Listing
 
 
+def _zero_site_costs(cfg: Config) -> None:
+    """Isola os testes de orquestração da calibragem de custos de lote."""
+    cfg.raw["costs"]["site_prep_cost"] = 0
+    cfg.raw["costs"]["impact_fees"] = 0
+    for tier in cfg.raw.get("tiers", []):
+        tier.get("costs", {}).pop("site_prep_cost", None)
+        tier.get("costs", {}).pop("impact_fees", None)
+
+
 def test_failed_evaluation_is_not_marked_seen(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
@@ -119,6 +128,7 @@ def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
     cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
     cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    _zero_site_costs(cfg)
     calls = []
 
     class Source:
@@ -151,6 +161,7 @@ def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_pat
     cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
     cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
     cfg.raw["rules"]["require_known_zoning"] = True
+    _zero_site_costs(cfg)
     cfg.raw["radar"] = {
         "enabled": True,
         "send_whatsapp": True,

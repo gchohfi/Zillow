@@ -203,3 +203,77 @@ def test_real_config_evaluates_mock_listings():
     assert cfg.raw["tiers"][2]["rules"]["manual_review_only"] is True
     assert "max_land_to_total_investment_pct" in cfg.rules
     assert all(hasattr(result, "land_to_total_investment") for result in results)
+
+
+def test_site_prep_and_impact_fees_enter_total_cost():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    base = {
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 15000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.50,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+    }
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3)
+    result = evaluate(listing, Config(raw=base))
+
+    # 50k terreno + 100k obra + 15k preparação + 20k impact fees
+    assert result.total_cost == 185_000
+    assert result.site_prep_cost == 15_000
+    assert result.impact_fees == 20_000
+    assert any("custos de lote" in reason for reason in result.reasons)
+
+    # Sem os custos de lote, o total cai exatamente 35k.
+    base["costs"]["site_prep_cost"] = 0
+    base["costs"]["impact_fees"] = 0
+    lighter = evaluate(listing, Config(raw=base))
+    assert lighter.total_cost == 150_000
+    assert not any("custos de lote" in reason for reason in lighter.reasons)
+
+
+def test_tier_can_override_site_costs():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = Config(raw={
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 15000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.50,
+            "require_residential_zoning": False,
+        },
+        "tiers": [{
+            "name": "baixo",
+            "max_price": 60000,
+            "costs": {"site_prep_cost": 25000, "impact_fees": 15000},
+        }],
+    })
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), cfg)
+    assert result.site_prep_cost == 25_000
+    assert result.impact_fees == 15_000
