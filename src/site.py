@@ -25,6 +25,7 @@ _ROW_FIELDS = (
     "found_at",
     "review_status",
     "review_reason",
+    "reasons",
     "is_viable",
     "tier",
     "zip_code",
@@ -99,6 +100,10 @@ def _normalize(row: dict) -> dict:
         else:
             out[field] = str(value or "")
     out["review_status"] = _status_of(row)
+    # A trilha completa de diligência só interessa nos cartões (viável/radar);
+    # zerar nas reprovadas mantém o HTML pequeno mesmo com histórico grande.
+    if out["review_status"] == "reprovado" or out["review_status"].startswith("reprovado"):
+        out["reasons"] = ""
     return out
 
 
@@ -339,13 +344,17 @@ _TEMPLATE = """<!DOCTYPE html>
     background: var(--surface-1);
     color: var(--text-secondary);
     border-radius: 999px;
-    padding: 5px 12px;
+    padding: 10px 16px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
     cursor: pointer;
     font-size: 13px;
   }
   .chip.active { border-color: var(--accent); color: var(--text-primary); font-weight: 600; }
-  select#sort, #search {
-    padding: 6px 10px;
+  select#sort, select#min-margin, #search {
+    padding: 10px 12px;
+    min-height: 44px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface-1);
@@ -353,6 +362,12 @@ _TEMPLATE = """<!DOCTYPE html>
     font-size: 13px;
   }
   #search { flex: 1 1 180px; max-width: 300px; }
+  .chip:focus-visible, .show-more:focus-visible, #search:focus-visible,
+  select:focus-visible, .opp-star:focus-visible, .opp-dismiss:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
   section { margin-top: 26px; }
   section h2 { font-size: 15px; margin: 0 0 6px; }
   section .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
@@ -389,8 +404,46 @@ _TEMPLATE = """<!DOCTYPE html>
   .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .opp-alert { font-size: 12px; color: var(--status-warning-text); }
   .opp-alert.ok { color: var(--status-good-text); }
-  .opp-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; border-top: 1px solid var(--grid); }
-  .opp-actions a { font-size: 13px; font-weight: 600; }
+  .opp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; border-top: 1px solid var(--grid); }
+  .opp-actions a {
+    font-size: 13px; font-weight: 600;
+    padding: 6px 4px; min-height: 40px;
+    display: inline-flex; align-items: center;
+  }
+  .opp-group {
+    font-size: 13px; font-weight: 700; color: var(--text-secondary);
+    margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .opp-group:first-child { margin-top: 0; }
+  .opp-group .count { color: var(--text-muted); font-weight: 500; text-transform: none; }
+  .opp-star, .opp-dismiss {
+    border: none; background: none; cursor: pointer;
+    font-size: 16px; color: var(--text-muted);
+    min-width: 36px; min-height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .opp-star:hover, .opp-dismiss:hover { color: var(--accent); }
+  .opp-star.on { color: var(--status-warning); }
+  .opp.starred { border-color: var(--accent); }
+  .opp-diligence { margin-top: 2px; }
+  .opp-diligence summary {
+    cursor: pointer; font-size: 12px; font-weight: 600;
+    color: var(--accent); list-style: none;
+  }
+  .opp-diligence summary::-webkit-details-marker { display: none; }
+  .opp-diligence summary::before { content: "▸ "; }
+  .opp-diligence[open] summary::before { content: "▾ "; }
+  .opp-diligence ul { margin: 6px 0 0; padding-left: 4px; list-style: none; }
+  .opp-diligence li { font-size: 12px; padding: 3px 0; border-top: 1px dashed var(--grid); }
+  .opp-diligence li:first-child { border-top: none; }
+  .chk-ok { color: var(--status-good-text); }
+  .chk-bad { color: var(--status-critical, #d03b3b); }
+  .chk-warn { color: var(--status-warning-text); }
+  .dismissed-note {
+    margin-top: 10px; font-size: 13px; color: var(--text-muted);
+    background: none; border: none; cursor: pointer; padding: 8px 4px;
+  }
+  .dismissed-note:hover { color: var(--accent); }
   .show-more {
     margin-top: 12px;
     width: 100%;
@@ -474,6 +527,17 @@ _TEMPLATE = """<!DOCTYPE html>
   @media (max-width: 480px) {
     .opp-stats { grid-template-columns: repeat(2, 1fr); }
   }
+  @media (max-width: 600px) {
+    .kpis, .controls {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 4px;
+    }
+    .kpi, .chip { scroll-snap-align: start; flex: 0 0 auto; }
+    #search { min-width: 200px; max-width: none; }
+  }
 </style>
 </head>
 <body>
@@ -503,14 +567,22 @@ _TEMPLATE = """<!DOCTYPE html>
       <option value="margin">Maior margem</option>
       <option value="profit">Maior lucro</option>
     </select>
+    <select id="min-margin" aria-label="Margem mínima">
+      <option value="0">Margem: todas</option>
+      <option value="0.15">Margem 15%+</option>
+      <option value="0.20">Margem 20%+</option>
+      <option value="0.25">Margem 25%+</option>
+      <option value="0.30">Margem 30%+</option>
+    </select>
     <input id="search" type="search" placeholder="Endereço, ZIP, região…">
   </div>
 
   <section>
     <h2>Oportunidades em aberto</h2>
     <p class="hint">Viáveis passaram em todos os filtros; Radar tem números bons com uma pendência de diligência. Reprovadas ficam na tabela completa no fim da página.</p>
-    <div class="opps" id="opp-cards"></div>
+    <div id="opp-cards"></div>
     <button class="show-more" id="show-more" style="display:none"></button>
+    <button class="dismissed-note" id="dismissed-note" style="display:none"></button>
   </section>
 
   <section>
@@ -669,7 +741,40 @@ function growthCell(r) {
 }
 
 function badge(r) {
-  return '<span class="badge ' + r.kind + '"><span class="dot"></span>' + statusLabel(r.review_status) + '</span>';
+  return '<span class="badge ' + r.kind + '" role="status"><span class="dot" aria-hidden="true"></span>' + statusLabel(r.review_status) + '</span>';
+}
+
+// ---- Curadoria do captador: descartar / acompanhar (memória do navegador) ----
+const DISMISSED_KEY = "oland-dismissed";
+const STARRED_KEY = "oland-starred";
+let dismissed = new Set();
+let starred = new Set();
+try {
+  dismissed = new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]"));
+  starred = new Set(JSON.parse(localStorage.getItem(STARRED_KEY) || "[]"));
+} catch (e) { /* navegação privada */ }
+let showDismissed = false;
+
+function persistSets() {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed]));
+    localStorage.setItem(STARRED_KEY, JSON.stringify([...starred]));
+  } catch (e) { /* navegação privada */ }
+}
+
+function reasonChecklist(r) {
+  if (!r.reasons) return "";
+  const items = r.reasons.split("|").map(s => s.trim()).filter(Boolean);
+  if (!items.length) return "";
+  const rows = items.map(item => {
+    const bad = item.startsWith("\\u2717");
+    const warn = item.startsWith("\\u26A0");
+    const info = item.startsWith("\\u2022");
+    const cls = bad ? "chk-bad" : warn ? "chk-warn" : info ? "muted" : "chk-ok";
+    return '<li class="' + cls + '">' + esc(item) + "</li>";
+  }).join("");
+  return '<details class="opp-diligence"><summary>Diligência completa (' +
+    items.length + ' itens)</summary><ul>' + rows + "</ul></details>";
 }
 
 // ---- Cartões de oportunidade ----
@@ -684,10 +789,19 @@ function oppCard(r) {
   const growth = g
     ? '<div class="stat" title="' + esc(g.signals) + '"><div class="l">região \\u2191</div><div class="v">' + g.score.toFixed(1) + "/10</div></div>"
     : '<div class="stat"><div class="l">região \\u2191</div><div class="v muted">n/d</div></div>';
-  return '<article class="opp ' + r.kind + '">' +
+  const isStarred = starred.has(r.id);
+  const isDismissed = dismissed.has(r.id);
+  return '<article class="opp ' + r.kind + (isStarred ? " starred" : "") + '">' +
     '<div class="opp-head">' + badge(r) +
       (isNew(r) ? '<span class="tag-new">NOVA</span>' : "") +
-      '<span class="when">' + fmtAgo(r.found_at) + "</span></div>" +
+      '<span class="when">' + fmtAgo(r.found_at) + "</span>" +
+      '<button class="opp-star' + (isStarred ? " on" : "") + '" data-id="' + esc(r.id) +
+        '" title="' + (isStarred ? "Deixar de acompanhar" : "Acompanhar") + '" aria-pressed="' + isStarred + '">' +
+        (isStarred ? "\\u2605" : "\\u2606") + "</button>" +
+      '<button class="opp-dismiss" data-id="' + esc(r.id) +
+        '" title="' + (isDismissed ? "Restaurar" : "Descartar") + '">' +
+        (isDismissed ? "\\u21BA" : "\\u2715") + "</button>" +
+    "</div>" +
     '<div><div class="opp-title">' + esc(r.address || r.id) + "</div>" +
     '<div class="opp-sub">' + esc(r.market_region || "fora das regiões-alvo") +
       (r.zip_code ? " · ZIP " + esc(r.zip_code) : "") +
@@ -701,6 +815,7 @@ function oppCard(r) {
       growth +
     "</div>" +
     alert +
+    reasonChecklist(r) +
     '<div class="opp-actions">' + linkCell(r) + "</div>" +
   "</article>";
 }
@@ -708,14 +823,43 @@ function oppCard(r) {
 function renderCards(visible) {
   const el = document.getElementById("opp-cards");
   const more = document.getElementById("show-more");
-  const cards = visible.filter(r => r.kind !== "reprovado");
+  const note = document.getElementById("dismissed-note");
+
+  let cards = visible.filter(r => r.kind !== "reprovado");
+  const hiddenCount = cards.filter(r => dismissed.has(r.id)).length;
+  if (!showDismissed) cards = cards.filter(r => !dismissed.has(r.id));
+  // Favoritos primeiro, preservando a ordenação escolhida dentro dos grupos.
+  cards = [...cards].sort((a, b) =>
+    (starred.has(b.id) ? 1 : 0) - (starred.has(a.id) ? 1 : 0));
+
+  if (hiddenCount > 0) {
+    note.textContent = showDismissed
+      ? "Ocultar " + hiddenCount + " descartada(s)"
+      : hiddenCount + " oportunidade(s) descartada(s) por você \\u00b7 mostrar";
+    note.style.display = "block";
+  } else {
+    note.style.display = "none";
+  }
+
   if (!cards.length) {
-    el.innerHTML = '<div class="card empty" style="grid-column:1/-1">Nenhuma oportunidade em aberto no período/filtro. As reprovadas ficam na tabela completa abaixo.</div>';
+    el.innerHTML = '<div class="card empty">Nenhuma oportunidade em aberto no período/filtro.' +
+      (searchTerm ? " Tente limpar a busca." : "") +
+      (minMargin > 0 ? " Tente reduzir a margem mínima." : "") +
+      " As reprovadas ficam na tabela completa no fim da página.</div>";
     more.style.display = "none";
     return;
   }
+
   const shown = showAllCards ? cards : cards.slice(0, CARD_LIMIT);
-  el.innerHTML = shown.map(oppCard).join("");
+  const ready = shown.filter(r => r.kind === "viavel");
+  const pending = shown.filter(r => r.kind === "radar");
+  const section = (title, list) => !list.length ? "" :
+    '<div class="opp-group">' + title + ' <span class="count">(' + list.length + ")</span></div>" +
+    '<div class="opps">' + list.map(oppCard).join("") + "</div>";
+  el.innerHTML =
+    section("\\u2713 Prontas para oferta", ready) +
+    section("\\u26A0 Em diligência", pending);
+
   if (cards.length > CARD_LIMIT && !showAllCards) {
     more.textContent = "Mostrar todas as " + cards.length + " oportunidades";
     more.style.display = "block";
@@ -726,6 +870,26 @@ function renderCards(visible) {
 document.getElementById("show-more").addEventListener("click", () => {
   showAllCards = true;
   renderAll();
+});
+document.getElementById("dismissed-note").addEventListener("click", () => {
+  showDismissed = !showDismissed;
+  renderAll();
+});
+// Delegação: estrela e descartar funcionam mesmo com re-render do innerHTML.
+document.getElementById("opp-cards").addEventListener("click", event => {
+  const star = event.target.closest(".opp-star");
+  const dis = event.target.closest(".opp-dismiss");
+  if (star) {
+    const id = star.dataset.id;
+    starred.has(id) ? starred.delete(id) : starred.add(id);
+    persistSets();
+    renderAll();
+  } else if (dis) {
+    const id = dis.dataset.id;
+    dismissed.has(id) ? dismissed.delete(id) : dismissed.add(id);
+    persistSets();
+    renderAll();
+  }
 });
 document.getElementById("show-more-regions").addEventListener("click", () => {
   showAllRegions = true;
@@ -801,10 +965,12 @@ function renderRegions() {
 let statusFilter = "opp";
 let searchTerm = "";
 let sortMode = "rank";
+let minMargin = 0;
 
 function matches(r) {
   if (statusFilter === "opp" && r.kind === "reprovado") return false;
   if ((statusFilter === "viavel" || statusFilter === "radar") && r.kind !== statusFilter) return false;
+  if (minMargin > 0 && (r.margin || 0) < minMargin) return false;
   if (!searchTerm) return true;
   const hay = [r.address, r.zip_code, r.market_region, r.market_priority, r.tier, r.zoning]
     .join(" ").toLowerCase();
@@ -820,15 +986,32 @@ function sorted(data) {
   return copy;
 }
 
-let map = null, markerLayer = null;
+let map = null, markerLayer = null, mapFitted = false;
+
+let lastVisible = [];
+let tableRendered = false;
 
 function renderAll() {
   const visible = sorted(rows.filter(matches));
+  lastVisible = visible;
   renderCards(visible);
-  renderTable(document.getElementById("tbl-all"), visible,
-    "Nenhuma avaliação no período/filtro.");
+  // A tabela completa só é montada quando o <details> é aberto — evita
+  // renderizar centenas de linhas que a maioria das visitas nem vê.
+  if (tableRendered) {
+    renderTable(document.getElementById("tbl-all"), visible,
+      "Nenhuma avaliação no período/filtro.");
+  }
   renderMarkers(visible);
 }
+
+const tblDetails = document.querySelector("details.tbl");
+tblDetails.addEventListener("toggle", () => {
+  if (tblDetails.open && !tableRendered) {
+    tableRendered = true;
+    renderTable(document.getElementById("tbl-all"), lastVisible,
+      "Nenhuma avaliação no período/filtro.");
+  }
+});
 
 function renderMarkers(visible) {
   if (typeof L === "undefined") {
@@ -873,13 +1056,23 @@ function renderMarkers(visible) {
       fillOpacity: 0.85,
     }).bindPopup(popup, { maxWidth: 380 }).addTo(markerLayer);
   });
-  if (pts.length) map.fitBounds(pts.map(r => [r.lat, r.lng]), { padding: [30, 30], maxZoom: 12 });
+  // Enquadra os pontos só no primeiro render: depois disso o zoom/posição
+  // são do usuário, e filtrar/buscar não pode roubá-los.
+  if (pts.length && !mapFitted) {
+    map.fitBounds(pts.map(r => [r.lat, r.lng]), { padding: [30, 30], maxZoom: 12 });
+    mapFitted = true;
+  }
 }
 
 document.querySelectorAll(".chip").forEach(chip => {
+  chip.setAttribute("aria-pressed", chip.classList.contains("active"));
   chip.addEventListener("click", () => {
-    document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
+    document.querySelectorAll(".chip").forEach(c => {
+      c.classList.remove("active");
+      c.setAttribute("aria-pressed", "false");
+    });
     chip.classList.add("active");
+    chip.setAttribute("aria-pressed", "true");
     statusFilter = chip.dataset.status;
     renderAll();
   });
@@ -888,10 +1081,21 @@ document.getElementById("sort").addEventListener("change", e => {
   sortMode = e.target.value;
   renderAll();
 });
-document.getElementById("search").addEventListener("input", e => {
-  searchTerm = e.target.value.trim().toLowerCase();
+document.getElementById("min-margin").addEventListener("change", e => {
+  minMargin = parseFloat(e.target.value) || 0;
   renderAll();
 });
+function debounce(fn, wait) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+document.getElementById("search").addEventListener("input", debounce(e => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  renderAll();
+}, 180));
 
 renderRegions();
 renderAll();

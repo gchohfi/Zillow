@@ -136,3 +136,16 @@ def test_regions_include_prefetched_thesis_zips(tmp_path):
     assert zips["32827"]["region"] == "Lake Nona"
     assert zips["32827"]["growth_score"] == 8.1
     assert "escolas" in zips["32827"]["growth_signals"]
+
+
+def test_reasons_trail_only_for_open_opportunities(tmp_path):
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "review_status": "radar_zoneamento_pendente",
+         "address": "Radar", "reasons": "✓ margem 30% ≥ alvo | ✗ zoneamento desconhecido"},
+        {"found_at": RECENT, "review_status": "reprovado",
+         "address": "Reprovada", "reasons": "✗ margem 5% < alvo 18%"},
+    ])
+    payload = build_payload(_cfg(tmp_path))
+    by_addr = {row["address"]: row for row in payload["rows"]}
+    assert "zoneamento desconhecido" in by_addr["Radar"]["reasons"]
+    assert by_addr["Reprovada"]["reasons"] == ""
