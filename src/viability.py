@@ -7,7 +7,7 @@ comportamento sem mexer no código.
 from __future__ import annotations
 
 from .config import Config
-from .market_strategy import classify_market
+from .market_strategy import classify_market, extract_zip
 from .models import Listing, ViabilityResult
 
 _RESIDENTIAL_HINTS = (
@@ -77,13 +77,32 @@ def _merged(base: dict, override: dict | None) -> dict:
     return {**base, **override}
 
 
+def resolve_county(listing: Listing, cfg: Config) -> tuple[str, dict]:
+    """County da listagem (via ZIP) e os overrides de custo dele, se houver."""
+    section = cfg.raw.get("county_costs", {})
+    counties = section.get("counties") or {}
+    zip_map = section.get("zip_to_county") or {}
+    if not counties or not zip_map:
+        return "", {}
+    zip_code = extract_zip(listing)
+    county = str(zip_map.get(zip_code or "") or "")
+    if not county:
+        return "", {}
+    return county, dict(counties.get(county) or {})
+
+
 def resolve_parameters(listing: Listing, cfg: Config) -> tuple[str, dict, dict, dict]:
-    """Resolve segmento e parâmetros efetivos para uma listagem."""
+    """Resolve segmento e parâmetros efetivos para uma listagem.
+
+    Ordem de precedência dos custos: base → segmento → county (via ZIP).
+    """
     tier = _resolve_tier(float(listing.price), cfg)
     tier_label = tier.get("label") or tier.get("name") or ""
 
     build = _merged(cfg.build, tier.get("build"))
     costs = _merged(cfg.costs, tier.get("costs"))
+    _, county_costs = resolve_county(listing, cfg)
+    costs = _merged(costs, county_costs)
     rules = _merged(cfg.rules, tier.get("rules"))
     return tier_label, build, costs, rules
 
@@ -134,6 +153,28 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     land_to_arv = land_cost / arv if arv else float("inf")
     land_to_total_investment = land_cost / total_cost if total_cost else float("inf")
 
+    # --- Cenário pessimista (análise de sensibilidade) ---
+    stress_cfg = cfg.raw.get("stress", {})
+    arv_drop = float(stress_cfg.get("arv_drop_pct", 0.10) or 0)
+    cost_rise = float(stress_cfg.get("construction_rise_pct", 0.10) or 0)
+    profit_stress = margin_stress = None
+    if arv_drop or cost_rise:
+        s_arv = arv * (1 - arv_drop)
+        s_construction = construction_cost * (1 + cost_rise)
+        s_total = (
+            land_cost
+            + s_construction
+            + float(costs["soft_cost_pct"]) * s_construction
+            + purchase_closing_cost
+            + float(costs.get("contingency_pct", 0)) * s_construction
+            + site_prep_cost
+            + impact_fees
+            + carrying_pct * (land_cost + s_construction)
+            + float(costs["selling_cost_pct"]) * s_arv
+        )
+        profit_stress = s_arv - s_total
+        margin_stress = profit_stress / s_arv if s_arv else 0.0
+
     # --- Regras de corte ---
     reasons: list[str] = []
     is_viable = True
@@ -154,6 +195,9 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         reasons.append(f"• mercado: {market['priority']}")
     for flag in market["risk_flags"]:
         reasons.append(f"⚠ {flag}")
+    county, _ = resolve_county(listing, cfg)
+    if county and (site_prep_cost or impact_fees):
+        reasons.append(f"• custos de lote calibrados para county {county}")
     if arv_source == "rentcast_avm":
         extra = ""
         if listing.arv_comps_count:
@@ -162,8 +206,27 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
                 extra += f", {listing.arv_confidence}"
             extra += ")"
         reasons.append(f"✓ ARV por comps RentCast{extra}")
+        # Divergência grande entre comps e premissa = incerteza no ARV.
+        warn_pct = float(cfg.raw.get("arv", {}).get("divergence_warn_pct", 0.15) or 0)
+        if warn_pct and config_arv:
+            divergence = (arv - config_arv) / config_arv
+            if abs(divergence) > warn_pct:
+                flag = (
+                    f"ARV dos comps diverge {divergence:+.0%} da premissa "
+                    f"(US$ {config_arv:,.0f}) — conferir comps"
+                )
+                reasons.append(f"⚠ {flag}")
+                market["risk_flags"].append(flag)
     else:
         reasons.append("⚠ ARV por premissa fixa do config")
+    if margin_stress is not None:
+        label = (
+            f"• pessimista (ARV −{arv_drop:.0%}, obra +{cost_rise:.0%}): "
+            f"lucro US$ {profit_stress:,.0f}, margem {margin_stress:.1%}"
+        )
+        reasons.append(label)
+        if margin_stress < 0:
+            market["risk_flags"].append("margem negativa no cenario pessimista")
 
     max_land_price = float(rules.get("max_land_price") or 0)
     if max_land_price > 0:
@@ -236,6 +299,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         total_cost=total_cost,
         profit=profit,
         margin=margin,
+        profit_stress=profit_stress,
+        margin_stress=margin_stress,
         land_to_arv=land_to_arv,
         land_to_total_investment=land_to_total_investment,
         is_viable=is_viable,

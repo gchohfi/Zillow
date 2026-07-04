@@ -45,6 +45,7 @@ _ROW_FIELDS = (
     "total_cost",
     "profit",
     "margin",
+    "margin_stress",
     "land_to_total_investment",
     "zoning",
     "url",
@@ -53,8 +54,8 @@ _ROW_FIELDS = (
 
 _FLOAT_FIELDS = {
     "lat", "lng", "distance_km", "land_price", "arv", "total_cost",
-    "profit", "margin", "land_to_total_investment", "growth_score",
-    "market_score",
+    "profit", "margin", "margin_stress", "land_to_total_investment",
+    "growth_score", "market_score",
 }
 
 
@@ -695,7 +696,8 @@ function oppCard(r) {
     '<div class="opp-stats">' +
       '<div class="stat"><div class="l">terreno</div><div class="v">' + fmtMoney(r.land_price) + "</div></div>" +
       '<div class="stat"><div class="l">lucro est.</div><div class="v">' + fmtMoney(r.profit) + "</div></div>" +
-      '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) + "</div></div>" +
+      '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) +
+        (r.margin_stress != null ? '</div><div class="small muted">pess. ' + fmtPct(r.margin_stress) + "</div>" : "</div>") + "</div>" +
       growth +
     "</div>" +
     alert +
@@ -857,6 +859,7 @@ function renderMarkers(visible) {
       statusLabel(r.review_status) + "<br>" +
       "Terreno: " + fmtMoney(r.land_price) + " · ARV: " + fmtMoney(r.arv) + "<br>" +
       "Lucro: " + fmtMoney(r.profit) + " (margem " + fmtPct(r.margin) + ")<br>" +
+      (r.margin_stress != null ? "Margem pessimista: " + fmtPct(r.margin_stress) + "<br>" : "") +
       (g ? "Crescimento região: " + g.score.toFixed(1) + "/10<br>" : "") +
       (g && g.signals ? "Sinais: " + esc(g.signals) + "<br>" : "") +
       (r.market_region ? "Mercado: " + esc(r.market_region) + "<br>" : "") +

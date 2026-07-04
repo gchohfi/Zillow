@@ -125,7 +125,8 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
         f"Custo total: US$ {r.total_cost:,.0f}",
         f"Lucro estimado: US$ {r.profit:,.0f}",
-        f"Margem: {r.margin:.1%}",
+        f"Margem: {r.margin:.1%}"
+        + (f" (pessimista: {r.margin_stress:.1%})" if r.margin_stress is not None else ""),
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
@@ -193,7 +194,8 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
         f"Custo total: US$ {r.total_cost:,.0f}",
         f"Lucro estimado: US$ {r.profit:,.0f}",
-        f"Margem: {r.margin:.1%}",
+        f"Margem: {r.margin:.1%}"
+        + (f" (pessimista: {r.margin_stress:.1%})" if r.margin_stress is not None else ""),
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]

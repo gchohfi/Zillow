@@ -30,6 +30,72 @@ costs:
   site_prep_cost: 15000        # preparação do lote: limpeza, aterro, conexões, driveway (USD)
   impact_fees: 20000           # taxas de impacto do county por unidade (USD)
 
+# ---- Custos por county (sobrepõem o segmento quando o ZIP é conhecido) ----
+# As tabelas de impact fees variam muito entre os counties da região.
+# CALIBRE com os valores reais que a empresa paga; ZIPs fora da lista usam
+# os valores do segmento acima.
+county_costs:
+  counties:
+    orange:   { impact_fees: 25000 }
+    osceola:  { impact_fees: 30000 }   # historicamente as mais altas da região
+    seminole: { impact_fees: 15000 }
+    lake:     { impact_fees: 15000 }
+    polk:     { impact_fees: 12000 }
+    volusia:  { impact_fees: 12000 }
+  zip_to_county:
+    # Orange
+    "32703": orange
+    "32712": orange
+    "32789": orange
+    "32792": orange
+    "32801": orange
+    "32805": orange
+    "32808": orange
+    "32810": orange
+    "32819": orange
+    "32822": orange
+    "32824": orange
+    "32827": orange
+    "32832": orange
+    "32836": orange
+    "34761": orange
+    "34786": orange
+    "34787": orange
+    # Seminole
+    "32771": seminole
+    # Osceola
+    "33896": osceola
+    "34741": osceola
+    "34744": osceola
+    "34746": osceola
+    "34747": osceola
+    "34758": osceola
+    "34769": osceola
+    "34771": osceola
+    "34772": osceola
+    "34773": osceola
+    # Lake
+    "34711": lake
+    "34714": lake
+    "34715": lake
+    "34748": lake
+    # Polk
+    "33801": polk
+    "33880": polk
+    "33897": polk
+    # Volusia
+    "32114": volusia
+    "32713": volusia
+    "32720": volusia
+    "32724": volusia
+
+# ---- Cenário pessimista (análise de sensibilidade) ----
+# Cada oportunidade também mostra lucro/margem com ARV menor e obra mais cara.
+# Margem negativa no pessimista vira atenção no alerta (não bloqueia).
+stress:
+  arv_drop_pct: 0.10           # ARV 10% menor
+  construction_rise_pct: 0.10  # obra 10% mais cara
+
 # ---- ARV por comps reais (RentCast AVM) ----
 # Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
 # Se a AVM falhar ou tiver poucos comps, o sistema volta para resale_price_per_sqft.
@@ -43,6 +109,7 @@ arv:
   comp_count: 10
   min_comps: 5                 # menos que isso, volta para a premissa fixa
   cap_confidences: [low]       # com confiança baixa, o ARV fica limitado à premissa
+  divergence_warn_pct: 0.15    # comps divergindo >15% da premissa vira atenção
   timeout_seconds: 20
 
 # ---- Regras de corte (o que é "viável") ----
