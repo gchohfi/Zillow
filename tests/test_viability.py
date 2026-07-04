@@ -277,3 +277,113 @@ def test_tier_can_override_site_costs():
     result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), cfg)
     assert result.site_prep_cost == 25_000
     assert result.impact_fees == 15_000
+
+
+def _stress_cfg(extra=None):
+    from src.config import Config
+    raw = {
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {"soft_cost_pct": 0.0, "selling_cost_pct": 0.0},
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.60,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+        "stress": {"arv_drop_pct": 0.10, "construction_rise_pct": 0.10},
+    }
+    if extra:
+        raw.update(extra)
+    return Config(raw=raw)
+
+
+def test_stress_scenario_computes_pessimistic_margin():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), _stress_cfg())
+
+    # Base: ARV 300k, custo 150k -> lucro 150k. Pessimista: ARV 270k,
+    # obra 110k -> custo 160k -> lucro 110k, margem 110/270.
+    assert result.profit == 150_000
+    assert result.profit_stress == 110_000
+    assert round(result.margin_stress, 4) == round(110_000 / 270_000, 4)
+    assert any("pessimista" in reason for reason in result.reasons)
+
+
+def test_stress_negative_margin_becomes_risk_flag():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = _stress_cfg({"stress": {"arv_drop_pct": 0.60, "construction_rise_pct": 0.10}})
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), cfg)
+    assert result.margin_stress < 0
+    assert any("pessimista" in flag for flag in result.risk_flags)
+
+
+def test_county_costs_override_by_zip():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = Config(raw={
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 10000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.60,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+        "county_costs": {
+            "counties": {"osceola": {"impact_fees": 30000}},
+            "zip_to_county": {"34771": "osceola"},
+        },
+    })
+
+    in_osceola = evaluate(
+        Listing(id="a", price=50_000, lat=28.2, lng=-81.2,
+                address="123 Trail, St. Cloud, FL 34771"),
+        cfg,
+    )
+    assert in_osceola.impact_fees == 30_000
+    assert any("county osceola" in reason for reason in in_osceola.reasons)
+
+    unknown_zip = evaluate(
+        Listing(id="b", price=50_000, lat=28.2, lng=-81.2, address="Sem ZIP"),
+        cfg,
+    )
+    assert unknown_zip.impact_fees == 20_000
+
+
+def test_avm_divergence_from_premise_flags_attention():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = _stress_cfg({"arv": {"divergence_warn_pct": 0.15}})
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3)
+    listing.arv_estimate = 400_000   # premissa é 300k -> +33%
+    listing.arv_source = "rentcast_avm"
+    listing.arv_comps_count = 6
+
+    result = evaluate(listing, cfg)
+    assert any("diverge" in reason for reason in result.reasons)
+    assert any("diverge" in flag for flag in result.risk_flags)
+
+    # Divergência pequena não gera atenção.
+    listing.arv_estimate = 310_000
+    calm = evaluate(listing, cfg)
+    assert not any("diverge" in flag for flag in calm.risk_flags)

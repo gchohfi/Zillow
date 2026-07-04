@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .config import Config, env
+from .config import Config, env, validate_config
 from .availability import check_availability
 from .arv import enrich_arv
 from .datasource import get_source
@@ -59,6 +59,12 @@ def _format_run_summary(
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
     cfg = Config.load()
+    config_errors = validate_config(cfg)
+    if config_errors:
+        print("[config] config.yaml inválido; corrija antes de rodar:")
+        for error in config_errors:
+            print(f"  - {error}")
+        return
     try:
         source = get_source(cfg, use_mock)
     except RuntimeError as exc:

@@ -166,6 +166,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Alert on workflow failure (WhatsApp)
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          # Silêncio deve significar "sem oportunidade", nunca "sistema quebrado".
+          if [ -n "${ZAPI_INSTANCE_ID:-}" ] && [ -n "${ZAPI_INSTANCE_TOKEN:-}" ] && [ -n "${ZAPI_PHONE:-}" ]; then
+            run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            payload=$(printf '{"phone":"%s","message":"[Orlando Land] ALERTA: a varredura #%s FALHOU. Verifique: %s"}' \
+              "$ZAPI_PHONE" "${{ github.run_number }}" "$run_url")
+            headers=(-H "Content-Type: application/json")
+            [ -n "${ZAPI_CLIENT_TOKEN:-}" ] && headers+=(-H "Client-Token: ${ZAPI_CLIENT_TOKEN}")
+            curl -sS -X POST "${headers[@]}" -d "$payload" \
+              "https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_INSTANCE_TOKEN}/send-text" || true
+          fi
+
       - name: Persist state to data branch
         if: ${{ always() && hashFiles('seen_listings.db') != '' }}
         shell: bash

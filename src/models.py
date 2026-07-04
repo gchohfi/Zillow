@@ -52,6 +52,8 @@ class ViabilityResult:
     tier: str = ""                                      # segmento: baixo/médio/alto padrão
     site_prep_cost: float = 0.0    # preparação do lote (limpeza, aterro, conexões)
     impact_fees: float = 0.0       # taxas de impacto do county
+    profit_stress: Optional[float] = None   # lucro no cenário pessimista
+    margin_stress: Optional[float] = None   # margem no cenário pessimista
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou
     arv_source: str = "config"
     arv_comps_count: Optional[int] = None

@@ -250,6 +250,10 @@ envia um resumo operacional a cada rodada: quantas listagens foram encontradas,
 quantas já eram vistas, quantas reprovaram e quantas viraram oportunidade. Assim
 você sabe que o monitor rodou mesmo quando não há nada para comprar.
 
+Se o workflow inteiro **falhar** (API fora, erro inesperado), um alerta de pane
+é enviado por WhatsApp com o link da execução — silêncio significa "sem
+oportunidade", nunca "sistema quebrado".
+
 Antes do WhatsApp, o sistema faz uma checagem de disponibilidade com dados
 estruturados da fonte: status ativo, sem `removedDate`, visto recentemente,
 listado há poucos dias e com MLS. Isso reduz casos em que o endereço aparece no
@@ -355,6 +359,21 @@ Além disso:
   estimativas de mercado de Central FL — **calibre com os seus números**
   (0 desliga). Eles apertam a régua de propósito: eram custos reais que a
   fórmula ignorava.
+- **Impact fees por county** (`config.yaml → county_costs`): quando o ZIP da
+  listagem é conhecido, os custos do county sobrepõem os do segmento —
+  Osceola cobra bem mais que Polk, e um valor único mascarava isso. ZIPs
+  fora da tabela usam os valores do segmento.
+- **Cenário pessimista em toda avaliação** (`config.yaml → stress`): cada
+  oportunidade mostra lucro e margem também com ARV 10% menor e obra 10%
+  mais cara — no WhatsApp, no CSV (`margin_stress`) e no dashboard. Margem
+  negativa no pessimista vira atenção no alerta (não bloqueia).
+- **Divergência de ARV** (`arv.divergence_warn_pct`): quando o ARV dos comps
+  diverge mais de 15% da premissa fixa, a oportunidade ganha a atenção
+  "conferir comps" — divergência grande significa incerteza no número mais
+  importante da conta.
+- **Validação do config na largada**: erros de digitação no `config.yaml`
+  (percentual acima de 1, campo ausente) param a execução com mensagem
+  clara em vez de produzir números silenciosamente errados.
 - **Trava de qualidade do ARV**: comps agora exigem mínimo de 5
   (`arv.min_comps`); AVM com confiança baixa acima da premissa fica
   **limitado à premissa** (`arv.cap_confidences`), evitando falso positivo
