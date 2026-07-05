@@ -270,3 +270,46 @@ def test_failed_lookup_is_cached_and_retried_after_window(tmp_path, monkeypatch)
 
     assert lookup_zoning(_listing(), cfg) == (None, None)
     assert calls["n"] > first_calls
+
+
+def _regrid_cfg(tmp_path):
+    return _cfg(tmp_path, sources=[
+        {"name": "regrid", "type": "regrid",
+         "query_url": "https://app.regrid.com/api/v2/parcels/point",
+         "fields": ["zoning_description", "zoning", "usedesc", "usecode"]},
+    ])
+
+
+def test_regrid_source_confirms_zoning_and_owner(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+        captured["url"] = url
+        captured["params"] = dict(params or {})
+        return _FakeResponse({"parcels": {"type": "FeatureCollection", "features": [{
+            "properties": {"fields": {
+                "zoning": "R-1",
+                "zoning_description": "Single Family Residential",
+                "usedesc": "VACANT RESIDENTIAL",
+                "owner": "SMITH JOHN",
+            }}
+        }]}})
+
+    monkeypatch.setattr("src.zoning.requests.get", fake_get)
+    monkeypatch.setenv("REGRID_API_KEY", "sandbox-token")
+
+    zoning, note = lookup_zoning(_listing(), _regrid_cfg(tmp_path))
+    assert zoning == "single family residential"
+    assert "regrid" in note and "dono: SMITH JOHN" in note
+    assert captured["params"]["token"] == "sandbox-token"
+    assert captured["params"]["lat"] == 28.47
+
+
+def test_regrid_source_skipped_without_key(tmp_path, monkeypatch):
+    def no_call(*args, **kwargs):
+        raise AssertionError("nao deveria chamar a Regrid sem chave")
+
+    monkeypatch.setattr("src.zoning.requests.get", no_call)
+    monkeypatch.delenv("REGRID_API_KEY", raising=False)
+
+    assert lookup_zoning(_listing(), _regrid_cfg(tmp_path)) == (None, None)

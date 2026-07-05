@@ -22,7 +22,7 @@ from typing import Any
 
 import requests
 
-from .config import Config
+from .config import Config, env
 from .models import Listing
 from .viability import resolve_county
 
@@ -237,6 +237,35 @@ def _query_arcgis_point(
     return features[0].get("attributes") or {}
 
 
+def _query_regrid_point(
+    url: str, lat: float, lng: float, token: str, timeout: float
+) -> dict[str, Any] | None:
+    """Consulta a parcela no ponto via Regrid Parcels API (v2).
+
+    Retorna o dicionário de campos da parcela (zoning, usedesc, owner etc.).
+    """
+    resp = requests.get(
+        url,
+        params={"lat": lat, "lon": lng, "token": token, "limit": 1},
+        headers={"User-Agent": _USER_AGENT},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    features = None
+    if isinstance(data, dict):
+        parcels = data.get("parcels")
+        if isinstance(parcels, dict):
+            features = parcels.get("features")
+        if features is None:
+            features = data.get("features")
+    if not features:
+        return None
+    props = features[0].get("properties") or {}
+    fields = props.get("fields") if isinstance(props.get("fields"), dict) else props
+    return fields if isinstance(fields, dict) else None
+
+
 def _label_from_value(value: str, prefix_map: dict[str, str]) -> str | None:
     """Traduz o valor do GIS num rótulo de zoneamento legível.
 
@@ -288,6 +317,7 @@ def lookup_zoning(
         county, _ = resolve_county(listing, cfg)
         for source in section.get("sources", []):
             name = source.get("name", "gis")
+            source_type = source.get("type", "arcgis")
             url = source.get("query_url")
             # Fontes por county (camadas menores e mais rápidas): a URL é
             # escolhida pelo county resolvido via ZIP da listagem.
@@ -297,17 +327,25 @@ def lookup_zoning(
             if not url:
                 continue
             fields = [str(f) for f in source.get("fields", []) if f]
-            out_fields = ",".join(fields) if fields else "*"
             try:
-                attrs = _query_arcgis_point(
-                    url, listing.lat, listing.lng, timeout, out_fields=out_fields
-                )
+                if source_type == "regrid":
+                    token = env("REGRID_API_KEY")
+                    if not token:
+                        continue  # liga sozinho quando o secret existir
+                    attrs = _query_regrid_point(
+                        url, listing.lat, listing.lng, token, timeout
+                    )
+                else:
+                    out_fields = ",".join(fields) if fields else "*"
+                    attrs = _query_arcgis_point(
+                        url, listing.lat, listing.lng, timeout, out_fields=out_fields
+                    )
             except (requests.RequestException, ValueError, RuntimeError) as exc:
                 print(f"  [aviso] GIS {name} falhou: {type(exc).__name__}")
                 continue
             if not attrs:
                 continue
-            for field in source.get("fields", []):
+            for field in fields:
                 value = attrs.get(field)
                 if value in (None, ""):
                     continue
@@ -315,6 +353,10 @@ def lookup_zoning(
                 if not label:
                     continue
                 note = f"✓ uso do solo via GIS {name}: {label} ({field}={value})"
+                owner = str(attrs.get("owner") or "").strip()
+                if owner:
+                    # Dono da parcela (Regrid): abre a porta do contato direto.
+                    note += f" · dono: {owner}"
                 cache.put(key, {"zoning": label, "note": note})
                 return label, note
 

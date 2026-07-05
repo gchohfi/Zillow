@@ -182,6 +182,15 @@ zoning_lookup:
   failure_retry_hours: 6        # GIS indisponível: tenta de novo após N horas
   timeout_seconds: 45           # cadastro estadual é grande; consultas frias demoram
   sources:
+    - name: regrid
+      type: regrid
+      # Fonte preferencial: Regrid Parcels API (zoneamento + uso do solo +
+      # dono, 100% de preenchimento em Orange County). Liga automaticamente
+      # quando o secret REGRID_API_KEY existir; sem a chave, é pulada.
+      # Sandbox grátis de 30 dias em regrid.com/api.
+      query_url: https://app.regrid.com/api/v2/parcels/point
+      fields: [zoning_description, zoning, usedesc, usecode]
+
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
       # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.

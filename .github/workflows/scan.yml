@@ -33,6 +33,7 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
+      REGRID_API_KEY: ${{ secrets.REGRID_API_KEY }}
       RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
       RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
       ZAPI_INSTANCE_ID: ${{ secrets.ZAPI_INSTANCE_ID }}
