@@ -197,3 +197,42 @@ def test_invalid_field_falls_back_to_all_fields(tmp_path, monkeypatch):
     zoning, _ = lookup_zoning(_listing(), _cfg(tmp_path))
     assert zoning == "vacant residential"
     assert seen == ["PARUSEDESC,DOR_UC", "*"]
+
+
+def test_county_source_resolves_url_by_zip(tmp_path, monkeypatch):
+    """Fonte por county usa a URL do county da listagem; sem county, pula."""
+    seen_urls = []
+
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+        seen_urls.append(url)
+        if "estadual" in url:
+            import requests as req
+            raise req.Timeout("estadual lenta")
+        return _FakeResponse(_arcgis_payload({"DOR_UC": "0000"}))
+
+    monkeypatch.setattr("src.zoning.requests.get", fake_get)
+    monkeypatch.setattr("src.zoning.time.sleep", lambda s: None)
+
+    cfg = _cfg(tmp_path, sources=[
+        {"name": "estadual", "query_url": "https://gis.example.com/estadual/query",
+         "fields": ["DOR_UC"]},
+        {"name": "county", "query_url_by_county": {
+            "orange": "https://gis.example.com/orange/query",
+        }, "fields": ["DOR_UC"]},
+    ])
+    cfg.raw["county_costs"] = {
+        "counties": {"orange": {}},
+        "zip_to_county": {"32801": "orange"},
+    }
+
+    listing = _listing(address="400 S Orange Ave, Orlando, FL 32801")
+    zoning, note = lookup_zoning(listing, cfg)
+    assert zoning == "vacant residential"
+    assert "county" in note
+    assert any("orange" in u for u in seen_urls)
+
+    # Sem ZIP mapeado: a fonte por county é pulada e o resultado é vazio.
+    seen_urls.clear()
+    no_zip = _listing(address="Sem ZIP", lat=28.1, lng=-81.1)
+    assert lookup_zoning(no_zip, cfg) == (None, None)
+    assert not any("orange" in u for u in seen_urls)
