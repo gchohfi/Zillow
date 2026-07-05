@@ -179,6 +179,7 @@ zoning_lookup:
   enabled: true
   cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
   cache_days: 90
+  failure_retry_hours: 6        # GIS indisponível: tenta de novo após N horas
   timeout_seconds: 45           # cadastro estadual é grande; consultas frias demoram
   sources:
     - name: fl_parcelas_estaduais

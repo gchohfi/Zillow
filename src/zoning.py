@@ -265,6 +265,7 @@ def lookup_zoning(
 
     timeout = float(section.get("timeout_seconds", 15))
     max_age_days = float(section.get("cache_days", 90) or 90)
+    failure_retry_days = float(section.get("failure_retry_hours", 6) or 6) / 24
     prefix_map = dict(_DOR_PREFIX_LABELS)
     prefix_map.update({
         str(k).zfill(2): str(v)
@@ -277,7 +278,12 @@ def lookup_zoning(
         key = ZoningCache.key_for(listing.lat, listing.lng)
         cached = cache.get(key, max_age_days)
         if cached is not None:
-            return cached.get("zoning"), cached.get("note")
+            if cached.get("zoning"):
+                return cached.get("zoning"), cached.get("note")
+            # Falha recente cacheada: não martela GIS indisponível a cada
+            # rodada; tenta de novo depois da janela de retry.
+            if cache.get(key, failure_retry_days) is not None:
+                return None, None
 
         county, _ = resolve_county(listing, cfg)
         for source in section.get("sources", []):
@@ -312,6 +318,8 @@ def lookup_zoning(
                 cache.put(key, {"zoning": label, "note": note})
                 return label, note
 
+        # Nada respondeu: registra a falha para poupar as próximas rodadas.
+        cache.put(key, {"zoning": None, "note": None})
         return None, None
     finally:
         if own_cache:
