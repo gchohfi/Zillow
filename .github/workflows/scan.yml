@@ -120,6 +120,26 @@ jobs:
             python -m src.main
           fi
 
+      - name: Zoning GIS smoke test
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Prova a URL do GIS estadual com uma coordenada fixa do centro de
+          # Orlando, sem depender de aparecer listagem nova. Fica em cache,
+          # então só a primeira rodada faz a chamada de verdade.
+          python - <<'PY'
+          from src.config import Config
+          from src.models import Listing
+          from src.zoning import lookup_zoning
+          listing = Listing(id="smoke-test", price=1, lat=28.5384, lng=-81.3789)
+          zoning, note = lookup_zoning(listing, Config.load())
+          if zoning:
+              print(f"[smoke] zoning GIS OK: {zoning} | {note}")
+          else:
+              print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
+          PY
+
       - name: Build dashboard site
         if: always()
         run: python -m src.site
