@@ -109,6 +109,7 @@ Secrets principais:
 | Secret | Obrigatório? | Uso |
 |---|---:|---|
 | `RENTCAST_API_KEY` | Sim | Busca listagens e ARV/comps na RentCast |
+| `REGRID_API_KEY` | Recomendado | Zoneamento/uso do solo/dono da parcela (Regrid; sandbox grátis 30 dias) |
 | `ZAPI_INSTANCE_ID` | Para WhatsApp | Instância da Z-API |
 | `ZAPI_INSTANCE_TOKEN` | Para WhatsApp | Token da instância Z-API |
 | `ZAPI_CLIENT_TOKEN` | Se sua Z-API exigir | Client token da Z-API |
@@ -166,9 +167,13 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
 **Confirmação automática via GIS:** quando a listagem vem sem zoneamento, o
-sistema consulta camadas ArcGIS públicas por coordenada (por padrão as
-parcelas estaduais da Flórida, com códigos de uso DOR padronizados) e
-preenche o uso do solo antes da avaliação (`config.yaml → zoning_lookup`).
+sistema consulta fontes de parcela por coordenada e preenche o uso do solo
+antes da avaliação (`config.yaml → zoning_lookup`). A fonte preferencial é a
+**Regrid Parcels API** (zoneamento, uso do solo e dono da parcela; liga
+automaticamente quando `REGRID_API_KEY` existir — sandbox grátis de 30 dias
+em regrid.com/api). Sem a chave, o sistema tenta os GIS públicos estaduais,
+que costumam bloquear IPs de CI — nesse caso a listagem segue para o Radar,
+como sempre.
 Residencial confirmado vira oportunidade viável direto no WhatsApp;
 comercial/industrial/conservação é reprovado sem revisão manual; falha de
 GIS mantém o comportamento atual (Radar). O resultado fica em cache por 90
