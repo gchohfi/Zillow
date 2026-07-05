@@ -179,7 +179,7 @@ zoning_lookup:
   enabled: true
   cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
   cache_days: 90
-  timeout_seconds: 15
+  timeout_seconds: 30           # cadastro estadual é grande; consultas frias demoram
   sources:
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
