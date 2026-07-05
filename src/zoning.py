@@ -223,6 +223,12 @@ def _query_arcgis_point(
         assert last_exc is not None
         raise last_exc
     if data.get("error"):
+        # Campo pedido inexistente na camada (nomes mudam entre vintages):
+        # refaz com todos os campos em vez de falhar — mais lento, mas certo.
+        if out_fields != "*":
+            return _query_arcgis_point(
+                url, lat, lng, timeout, out_fields="*", retries=retries
+            )
         raise RuntimeError(str(data["error"]))
     features = data.get("features") or []
     if not features:

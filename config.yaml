@@ -185,7 +185,7 @@ zoning_lookup:
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
       # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
       query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
-      fields: [PARUSEDESC, PAR_USE_DESC, DOR_UC]   # texto primeiro; código DOR como reserva
+      fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
