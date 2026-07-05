@@ -1001,7 +1001,10 @@ function renderAll() {
     renderTable(document.getElementById("tbl-all"), visible,
       "Nenhuma avaliação no período/filtro.");
   }
-  renderMarkers(visible);
+  // O mapa acompanha os cartões: descartadas somem dele também (a tabela
+  // completa continua mostrando tudo, para auditoria).
+  const mapVisible = showDismissed ? visible : visible.filter(r => !dismissed.has(r.id));
+  renderMarkers(mapVisible);
 }
 
 const tblDetails = document.querySelector("details.tbl");
