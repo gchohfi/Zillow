@@ -181,3 +181,19 @@ def test_query_requests_only_needed_fields_and_retries_timeout(tmp_path, monkeyp
     assert zoning == "vacant residential"
     assert captured["calls"] == 2                     # retry após timeout
     assert captured["outFields"] == "PARUSEDESC,DOR_UC"  # só os campos pedidos
+
+
+def test_invalid_field_falls_back_to_all_fields(tmp_path, monkeypatch):
+    """Campo inexistente na camada -> refaz com outFields=* em vez de falhar."""
+    seen = []
+
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+        seen.append((params or {}).get("outFields"))
+        if (params or {}).get("outFields") != "*":
+            return _FakeResponse({"error": {"code": 400, "message": "Invalid field: PARUSEDESC"}})
+        return _FakeResponse(_arcgis_payload({"DOR_UC": "0000", "PA_UC": "00"}))
+
+    monkeypatch.setattr("src.zoning.requests.get", fake_get)
+    zoning, _ = lookup_zoning(_listing(), _cfg(tmp_path))
+    assert zoning == "vacant residential"
+    assert seen == ["PARUSEDESC,DOR_UC", "*"]
