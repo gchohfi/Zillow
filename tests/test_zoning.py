@@ -236,3 +236,37 @@ def test_county_source_resolves_url_by_zip(tmp_path, monkeypatch):
     no_zip = _listing(address="Sem ZIP", lat=28.1, lng=-81.1)
     assert lookup_zoning(no_zip, cfg) == (None, None)
     assert not any("orange" in u for u in seen_urls)
+
+
+def test_failed_lookup_is_cached_and_retried_after_window(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from src.zoning import ZoningCache
+    import requests as req
+
+    calls = {"n": 0}
+
+    def always_timeout(*args, **kwargs):
+        calls["n"] += 1
+        raise req.ConnectTimeout("bloqueado")
+
+    monkeypatch.setattr("src.zoning.requests.get", always_timeout)
+    monkeypatch.setattr("src.zoning.time.sleep", lambda s: None)
+    cfg = _cfg(tmp_path, failure_retry_hours=6)
+
+    assert lookup_zoning(_listing(), cfg) == (None, None)
+    first_calls = calls["n"]
+    assert first_calls > 0
+
+    # Dentro da janela: falha cacheada, nenhuma nova chamada.
+    assert lookup_zoning(_listing(), cfg) == (None, None)
+    assert calls["n"] == first_calls
+
+    # Envelhece a falha para além das 6h: volta a tentar.
+    cache = ZoningCache(str(tmp_path / "zoning.db"))
+    old = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+    cache.conn.execute("UPDATE zoning_cache SET fetched_at = ?", (old,))
+    cache.conn.commit()
+    cache.close()
+
+    assert lookup_zoning(_listing(), cfg) == (None, None)
+    assert calls["n"] > first_calls
