@@ -182,10 +182,10 @@ zoning_lookup:
   timeout_seconds: 15
   sources:
     - name: fl_parcelas_estaduais
-      # Parcelas estaduais da Flórida (FGIO) com códigos de uso DOR
-      # padronizados. Se a URL mudar, basta atualizar aqui.
-      query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Parcels/FeatureServer/0/query
-      fields: [PARUSEDESC, DOR_UC]   # texto primeiro; código DOR como reserva
+      # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
+      # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
+      query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
+      fields: [PARUSEDESC, PAR_USE_DESC, DOR_UC]   # texto primeiro; código DOR como reserva
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
