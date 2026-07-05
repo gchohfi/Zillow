@@ -24,6 +24,7 @@ import requests
 
 from .config import Config
 from .models import Listing
+from .viability import resolve_county
 
 _USER_AGENT = "orlando-land-detector/1.0 (https://github.com/gchohfi/Zillow)"
 
@@ -278,9 +279,15 @@ def lookup_zoning(
         if cached is not None:
             return cached.get("zoning"), cached.get("note")
 
+        county, _ = resolve_county(listing, cfg)
         for source in section.get("sources", []):
             name = source.get("name", "gis")
             url = source.get("query_url")
+            # Fontes por county (camadas menores e mais rápidas): a URL é
+            # escolhida pelo county resolvido via ZIP da listagem.
+            by_county = source.get("query_url_by_county") or {}
+            if not url and by_county:
+                url = by_county.get(county)
             if not url:
                 continue
             fields = [str(f) for f in source.get("fields", []) if f]

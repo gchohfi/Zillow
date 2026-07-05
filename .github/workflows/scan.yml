@@ -132,7 +132,9 @@ jobs:
           from src.config import Config
           from src.models import Listing
           from src.zoning import lookup_zoning
-          listing = Listing(id="smoke-test", price=1, lat=28.5384, lng=-81.3789)
+          # Endereço com ZIP para exercitar também o fallback por county.
+          listing = Listing(id="smoke-test", price=1, lat=28.5384, lng=-81.3789,
+                            address="400 S Orange Ave, Orlando, FL 32801")
           zoning, note = lookup_zoning(listing, Config.load())
           if zoning:
               print(f"[smoke] zoning GIS OK: {zoning} | {note}")

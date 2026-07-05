@@ -179,13 +179,26 @@ zoning_lookup:
   enabled: true
   cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
   cache_days: 90
-  timeout_seconds: 30           # cadastro estadual é grande; consultas frias demoram
+  timeout_seconds: 45           # cadastro estadual é grande; consultas frias demoram
   sources:
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
       # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
       query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
       fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
+
+    - name: fl_saude_parcelas_county
+      # Plano B: parcelas por county (Fla. Dept. of Health) — camadas bem
+      # menores e mais rápidas. O índice da camada é a posição alfabética do
+      # county entre os 67 da Flórida (Orange=47, verificado).
+      query_url_by_county:
+        orange:   https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/47/query
+        osceola:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/48/query
+        lake:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/33/query
+        seminole: https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/58/query
+        polk:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/52/query
+        volusia:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/63/query
+      fields: [DOR_UC, PA_UC]
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
