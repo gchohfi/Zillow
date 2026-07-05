@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -181,24 +182,46 @@ class ZoningCache:
 
 
 def _query_arcgis_point(
-    url: str, lat: float, lng: float, timeout: float
+    url: str,
+    lat: float,
+    lng: float,
+    timeout: float,
+    out_fields: str = "*",
+    retries: int = 1,
 ) -> dict[str, Any] | None:
-    """Consulta uma camada ArcGIS por ponto; retorna os atributos da 1ª feição."""
+    """Consulta uma camada ArcGIS por ponto; retorna os atributos da 1ª feição.
+
+    Pedir só os campos necessários (out_fields) é essencial em camadas
+    gigantes como o cadastro estadual (~10,8 mi de parcelas): outFields=*
+    força o servidor a montar a resposta completa e estoura o tempo.
+    """
     params = {
         "f": "json",
         "geometry": f"{lng},{lat}",
         "geometryType": "esriGeometryPoint",
         "inSR": 4326,
         "spatialRel": "esriSpatialRelIntersects",
-        "outFields": "*",
+        "outFields": out_fields,
         "returnGeometry": "false",
         "resultRecordCount": 1,
     }
-    resp = requests.get(
-        url, params=params, headers={"User-Agent": _USER_AGENT}, timeout=timeout
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(
+                url, params=params, headers={"User-Agent": _USER_AGENT}, timeout=timeout
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except requests.Timeout as exc:
+            # Camadas hospedadas "frias" costumam responder na 2ª tentativa.
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(2)
+    else:
+        assert last_exc is not None
+        raise last_exc
     if data.get("error"):
         raise RuntimeError(str(data["error"]))
     features = data.get("features") or []
@@ -254,8 +277,12 @@ def lookup_zoning(
             url = source.get("query_url")
             if not url:
                 continue
+            fields = [str(f) for f in source.get("fields", []) if f]
+            out_fields = ",".join(fields) if fields else "*"
             try:
-                attrs = _query_arcgis_point(url, listing.lat, listing.lng, timeout)
+                attrs = _query_arcgis_point(
+                    url, listing.lat, listing.lng, timeout, out_fields=out_fields
+                )
             except (requests.RequestException, ValueError, RuntimeError) as exc:
                 print(f"  [aviso] GIS {name} falhou: {type(exc).__name__}")
                 continue

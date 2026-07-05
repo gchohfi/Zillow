@@ -160,3 +160,24 @@ def test_zoning_cache_roundtrip(tmp_path):
     assert cache.get(key, max_age_days=90)["zoning"] == "single family residential"
     assert cache.get(key, max_age_days=0) is None
     cache.close()
+
+
+def test_query_requests_only_needed_fields_and_retries_timeout(tmp_path, monkeypatch):
+    import requests as req
+
+    captured = {"outFields": None, "calls": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+        captured["calls"] += 1
+        captured["outFields"] = (params or {}).get("outFields")
+        if captured["calls"] == 1:
+            raise req.Timeout("lenta na primeira")
+        return _FakeResponse(_arcgis_payload({"PARUSEDESC": "VACANT RESIDENTIAL"}))
+
+    monkeypatch.setattr("src.zoning.requests.get", fake_get)
+    monkeypatch.setattr("src.zoning.time.sleep", lambda s: None)
+
+    zoning, _ = lookup_zoning(_listing(), _cfg(tmp_path))
+    assert zoning == "vacant residential"
+    assert captured["calls"] == 2                     # retry após timeout
+    assert captured["outFields"] == "PARUSEDESC,DOR_UC"  # só os campos pedidos
