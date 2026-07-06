@@ -188,7 +188,10 @@ zoning_lookup:
       # Fonte preferencial: Regrid Parcels API (zoneamento + uso do solo +
       # dono, 100% de preenchimento em Orange County). Liga automaticamente
       # quando o secret REGRID_API_KEY existir; sem a chave, é pulada.
-      # Sandbox grátis de 30 dias em regrid.com/api.
+      # ATENÇÃO (verificado em 2026-07-06): o token TRIAL não cobre Orlando —
+      # a API v1 responde "This area is not included in API trials" e a v2
+      # devolve FeatureCollections vazias. Requer plano pago (regrid.com/api);
+      # com um token pago no secret, liga sozinho sem mexer em nada.
       query_url: https://app.regrid.com/api/v2/parcels/point
       fields: [zoning_description, zoning, usedesc, usecode]
 
