@@ -132,11 +132,22 @@ jobs:
           python - <<'PY'
           from src.config import Config
           from src.models import Listing
-          from src.zoning import lookup_zoning
+          from src.zoning import ZoningCache, lookup_zoning
+          cfg = Config.load()
+          # O smoke sempre sonda de verdade: fura o cache quando o registro é
+          # de falha (o cache de sucesso fica, evitando chamadas repetidas).
+          section = cfg.raw.get("zoning_lookup", {})
+          cache = ZoningCache(section.get("cache_db", "region_signals.db"))
+          key = ZoningCache.key_for(28.5384, -81.3789)
+          cached = cache.get(key, max_age_days=3650)
+          if cached is not None and not cached.get("zoning"):
+              cache.conn.execute("DELETE FROM zoning_cache WHERE key = ?", (key,))
+              cache.conn.commit()
+          cache.close()
           # Endereço com ZIP para exercitar também o fallback por county.
           listing = Listing(id="smoke-test", price=1, lat=28.5384, lng=-81.3789,
                             address="400 S Orange Ave, Orlando, FL 32801")
-          zoning, note = lookup_zoning(listing, Config.load())
+          zoning, note = lookup_zoning(listing, cfg)
           if zoning:
               print(f"[smoke] zoning GIS OK: {zoning} | {note}")
           else:
