@@ -152,6 +152,20 @@ jobs:
               print(f"[smoke] zoning GIS OK: {zoning} | {note}")
           else:
               print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
+              # Sonda crua na Regrid para diagnosticar por que veio vazio
+              # (o token nunca aparece: o Actions mascara secrets no log).
+              import os, requests
+              token = os.environ.get("REGRID_API_KEY", "").strip()
+              if token:
+                  try:
+                      resp = requests.get(
+                          "https://app.regrid.com/api/v2/parcels/point",
+                          params={"lat": 28.5384, "lon": -81.3789, "token": token, "limit": 1},
+                          timeout=30,
+                      )
+                      print(f"[smoke] regrid bruto: HTTP {resp.status_code} | {resp.text[:400]}")
+                  except Exception as exc:
+                      print(f"[smoke] regrid bruto falhou: {type(exc).__name__}: {exc}")
           PY
 
       - name: Build dashboard site

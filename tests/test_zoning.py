@@ -305,6 +305,32 @@ def test_regrid_source_confirms_zoning_and_owner(tmp_path, monkeypatch):
     assert captured["params"]["lat"] == 28.47
 
 
+def test_regrid_unexpected_body_fails_open_with_warning(tmp_path, monkeypatch, capsys):
+    """Corpo 200 sem lista de feições (erro disfarçado) vira aviso, não silêncio."""
+    monkeypatch.setattr(
+        "src.zoning.requests.get",
+        lambda *a, **k: _FakeResponse({"error": "invalid token"}),
+    )
+    monkeypatch.setenv("REGRID_API_KEY", "sandbox-token")
+
+    assert lookup_zoning(_listing(), _regrid_cfg(tmp_path)) == (None, None)
+    assert "GIS regrid falhou" in capsys.readouterr().out
+
+
+def test_empty_features_logs_no_parcel_warning(tmp_path, monkeypatch, capsys):
+    """Resposta válida porém vazia (sem parcela no ponto) fica visível no log."""
+    monkeypatch.setattr(
+        "src.zoning.requests.get",
+        lambda *a, **k: _FakeResponse(
+            {"parcels": {"type": "FeatureCollection", "features": []}}
+        ),
+    )
+    monkeypatch.setenv("REGRID_API_KEY", "sandbox-token")
+
+    assert lookup_zoning(_listing(), _regrid_cfg(tmp_path)) == (None, None)
+    assert "sem parcela no ponto" in capsys.readouterr().out
+
+
 def test_regrid_source_skipped_without_key(tmp_path, monkeypatch):
     def no_call(*args, **kwargs):
         raise AssertionError("nao deveria chamar a Regrid sem chave")
