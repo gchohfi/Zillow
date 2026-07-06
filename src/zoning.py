@@ -259,6 +259,10 @@ def _query_regrid_point(
             features = parcels.get("features")
         if features is None:
             features = data.get("features")
+    if features is None:
+        # Corpo sem a lista de feições: erro da API disfarçado de 200
+        # (token inválido, quota estourada etc.) — expõe em vez de engolir.
+        raise RuntimeError(f"resposta inesperada da Regrid: {str(data)[:200]}")
     if not features:
         return None
     props = features[0].get("properties") or {}
@@ -344,6 +348,9 @@ def lookup_zoning(
                 print(f"  [aviso] GIS {name} falhou: {type(exc).__name__}")
                 continue
             if not attrs:
+                # Resposta válida mas sem parcela no ponto (água, via pública,
+                # área fora da cobertura da fonte): registra para diagnóstico.
+                print(f"  [aviso] GIS {name}: sem parcela no ponto")
                 continue
             for field in fields:
                 value = attrs.get(field)
