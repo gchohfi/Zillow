@@ -159,18 +159,23 @@ jobs:
           import os, requests
           token = os.environ.get("REGRID_API_KEY", "").strip()
           if token and "regrid" not in str(note or ""):
-              for cidade, lat, lon in [("orlando", 28.5384, -81.3789),
-                                       ("detroit", 42.3314, -83.0458)]:
+              # v2 devolveu vazio até em Detroit; compara com a API v1 e com o
+              # token no header para isolar se é entitlements do v2 ou a conta.
+              probes = [
+                  ("v2 orlando", "https://app.regrid.com/api/v2/parcels/point",
+                   {"lat": 28.5384, "lon": -81.3789, "token": token, "limit": 1, "radius": 100}, {}),
+                  ("v2 header", "https://app.regrid.com/api/v2/parcels/point",
+                   {"lat": 28.5384, "lon": -81.3789, "limit": 1, "radius": 100},
+                   {"Authorization": f"Bearer {token}"}),
+                  ("v1 orlando", "https://app.regrid.com/api/v1/search.json",
+                   {"lat": 28.5384, "lon": -81.3789, "radius": 100, "limit": 1, "token": token}, {}),
+              ]
+              for nome, url, params, headers in probes:
                   try:
-                      resp = requests.get(
-                          "https://app.regrid.com/api/v2/parcels/point",
-                          params={"lat": lat, "lon": lon, "token": token,
-                                  "limit": 1, "radius": 100},
-                          timeout=30,
-                      )
-                      print(f"[smoke] regrid bruto {cidade}: HTTP {resp.status_code} | {resp.text[:300]}")
+                      resp = requests.get(url, params=params, headers=headers, timeout=30)
+                      print(f"[smoke] regrid bruto {nome}: HTTP {resp.status_code} | {resp.text[:300]}")
                   except Exception as exc:
-                      print(f"[smoke] regrid bruto {cidade} falhou: {type(exc).__name__}: {exc}")
+                      print(f"[smoke] regrid bruto {nome} falhou: {type(exc).__name__}: {exc}")
           PY
 
       - name: Build dashboard site
