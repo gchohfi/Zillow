@@ -305,6 +305,38 @@ def test_regrid_source_confirms_zoning_and_owner(tmp_path, monkeypatch):
     assert captured["params"]["lat"] == 28.47
 
 
+def test_radius_reaches_parcel_across_the_street(tmp_path, monkeypatch):
+    """radius_m vira 'radius' na Regrid e 'distance' em metros no ArcGIS."""
+    captured = {}
+
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
+        captured[url] = dict(params or {})
+        if "regrid" in url:
+            return _FakeResponse({"parcels": {"type": "FeatureCollection", "features": [{
+                "properties": {"fields": {"zoning": "R-1"}}
+            }]}})
+        return _FakeResponse(_arcgis_payload({"DOR_UC": "0000"}))
+
+    monkeypatch.setattr("src.zoning.requests.get", fake_get)
+    monkeypatch.setenv("REGRID_API_KEY", "sandbox-token")
+
+    cfg = _cfg(tmp_path, radius_m=30, sources=[
+        {"name": "regrid", "type": "regrid",
+         "query_url": "https://regrid.example.com/point", "fields": ["zoning"]},
+    ])
+    zoning, _ = lookup_zoning(_listing(), cfg)
+    assert zoning == "r-1"
+    assert captured["https://regrid.example.com/point"]["radius"] == 30
+
+    cfg2 = _cfg(tmp_path, radius_m=30)
+    cfg2.raw["zoning_lookup"]["cache_db"] = str(tmp_path / "z2.db")
+    zoning2, _ = lookup_zoning(_listing(lat=28.48), cfg2)
+    assert zoning2 == "vacant residential"
+    arcgis_params = captured["https://gis.example.com/parcels/query"]
+    assert arcgis_params["distance"] == 30
+    assert arcgis_params["units"] == "esriSRUnit_Meter"
+
+
 def test_regrid_unexpected_body_fails_open_with_warning(tmp_path, monkeypatch, capsys):
     """Corpo 200 sem lista de feições (erro disfarçado) vira aviso, não silêncio."""
     monkeypatch.setattr(

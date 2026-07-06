@@ -160,7 +160,8 @@ jobs:
                   try:
                       resp = requests.get(
                           "https://app.regrid.com/api/v2/parcels/point",
-                          params={"lat": 28.5384, "lon": -81.3789, "token": token, "limit": 1},
+                          params={"lat": 28.5384, "lon": -81.3789, "token": token,
+                                  "limit": 1, "radius": 30},
                           timeout=30,
                       )
                       print(f"[smoke] regrid bruto: HTTP {resp.status_code} | {resp.text[:400]}")

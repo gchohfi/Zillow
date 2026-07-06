@@ -189,6 +189,7 @@ def _query_arcgis_point(
     timeout: float,
     out_fields: str = "*",
     retries: int = 1,
+    radius_m: float = 0,
 ) -> dict[str, Any] | None:
     """Consulta uma camada ArcGIS por ponto; retorna os atributos da 1ª feição.
 
@@ -206,6 +207,10 @@ def _query_arcgis_point(
         "returnGeometry": "false",
         "resultRecordCount": 1,
     }
+    if radius_m:
+        # Buffer em metros: absorve geocodes que caem na rua em frente ao lote.
+        params["distance"] = int(radius_m)
+        params["units"] = "esriSRUnit_Meter"
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
         try:
@@ -238,15 +243,21 @@ def _query_arcgis_point(
 
 
 def _query_regrid_point(
-    url: str, lat: float, lng: float, token: str, timeout: float
+    url: str, lat: float, lng: float, token: str, timeout: float,
+    radius_m: float = 0,
 ) -> dict[str, Any] | None:
     """Consulta a parcela no ponto via Regrid Parcels API (v2).
 
     Retorna o dicionário de campos da parcela (zoning, usedesc, owner etc.).
+    Um raio pequeno (metros) absorve geocodes que caem na rua em frente ao
+    lote — ponto exato com radius=0 não acha parcela em via pública.
     """
+    params: dict[str, Any] = {"lat": lat, "lon": lng, "token": token, "limit": 1}
+    if radius_m:
+        params["radius"] = int(radius_m)
     resp = requests.get(
         url,
-        params={"lat": lat, "lon": lng, "token": token, "limit": 1},
+        params=params,
         headers={"User-Agent": _USER_AGENT},
         timeout=timeout,
     )
@@ -331,18 +342,21 @@ def lookup_zoning(
             if not url:
                 continue
             fields = [str(f) for f in source.get("fields", []) if f]
+            radius_m = float(source.get("radius_m", section.get("radius_m", 0)) or 0)
             try:
                 if source_type == "regrid":
                     token = env("REGRID_API_KEY")
                     if not token:
                         continue  # liga sozinho quando o secret existir
                     attrs = _query_regrid_point(
-                        url, listing.lat, listing.lng, token, timeout
+                        url, listing.lat, listing.lng, token, timeout,
+                        radius_m=radius_m,
                     )
                 else:
                     out_fields = ",".join(fields) if fields else "*"
                     attrs = _query_arcgis_point(
-                        url, listing.lat, listing.lng, timeout, out_fields=out_fields
+                        url, listing.lat, listing.lng, timeout,
+                        out_fields=out_fields, radius_m=radius_m,
                     )
             except (requests.RequestException, ValueError, RuntimeError) as exc:
                 print(f"  [aviso] GIS {name} falhou: {type(exc).__name__}")

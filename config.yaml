@@ -181,6 +181,7 @@ zoning_lookup:
   cache_days: 90
   failure_retry_hours: 6        # GIS indisponível: tenta de novo após N horas
   timeout_seconds: 45           # cadastro estadual é grande; consultas frias demoram
+  radius_m: 30                  # raio (m): absorve geocode que cai na rua em frente ao lote
   sources:
     - name: regrid
       type: regrid
