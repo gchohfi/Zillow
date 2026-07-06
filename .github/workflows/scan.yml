@@ -152,21 +152,25 @@ jobs:
               print(f"[smoke] zoning GIS OK: {zoning} | {note}")
           else:
               print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
-              # Sonda crua na Regrid para diagnosticar por que veio vazio
-              # (o token nunca aparece: o Actions mascara secrets no log).
-              import os, requests
-              token = os.environ.get("REGRID_API_KEY", "").strip()
-              if token:
+          # Enquanto a Regrid não responder, sonda crua para diagnosticar:
+          # Orlando (alvo real) vs. Detroit (área dos exemplos da própria
+          # Regrid). Detroit cheio + Orlando vazio = trial limitado a áreas
+          # de amostra. O token nunca aparece: o Actions mascara secrets.
+          import os, requests
+          token = os.environ.get("REGRID_API_KEY", "").strip()
+          if token and "regrid" not in str(note or ""):
+              for cidade, lat, lon in [("orlando", 28.5384, -81.3789),
+                                       ("detroit", 42.3314, -83.0458)]:
                   try:
                       resp = requests.get(
                           "https://app.regrid.com/api/v2/parcels/point",
-                          params={"lat": 28.5384, "lon": -81.3789, "token": token,
-                                  "limit": 1, "radius": 30},
+                          params={"lat": lat, "lon": lon, "token": token,
+                                  "limit": 1, "radius": 100},
                           timeout=30,
                       )
-                      print(f"[smoke] regrid bruto: HTTP {resp.status_code} | {resp.text[:400]}")
+                      print(f"[smoke] regrid bruto {cidade}: HTTP {resp.status_code} | {resp.text[:300]}")
                   except Exception as exc:
-                      print(f"[smoke] regrid bruto falhou: {type(exc).__name__}: {exc}")
+                      print(f"[smoke] regrid bruto {cidade} falhou: {type(exc).__name__}: {exc}")
           PY
 
       - name: Build dashboard site
