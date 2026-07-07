@@ -162,6 +162,20 @@ jobs:
                         "token em app.regrid.com")
           else:
               print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
+          # Se a Regrid não respondeu, o /usage diz o status da conta direto
+          # da fonte (flags trial/paid no histórico) sem gastar cota de
+          # parcelas. O token nunca aparece: o Actions mascara secrets.
+          if regrid_on and "regrid" not in str(note or ""):
+              import requests
+              try:
+                  resp = requests.get(
+                      "https://app.regrid.com/api/v2/usage",
+                      params={"token": os.environ["REGRID_API_KEY"].strip(),
+                              "return_full_history": "true"},
+                      timeout=30)
+                  print(f"[smoke] regrid /usage: HTTP {resp.status_code} | {resp.text[:600]}")
+              except Exception as exc:
+                  print(f"[smoke] regrid /usage falhou: {type(exc).__name__}: {exc}")
           PY
 
       - name: Build dashboard site
