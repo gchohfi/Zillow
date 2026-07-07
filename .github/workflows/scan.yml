@@ -128,19 +128,25 @@ jobs:
         run: |
           # Prova a URL do GIS estadual com uma coordenada fixa do centro de
           # Orlando, sem depender de aparecer listagem nova. Fica em cache,
-          # então só a primeira rodada faz a chamada de verdade.
+          # então só a primeira rodada faz a chamada de verdade — exceto com
+          # chave Regrid, quando o smoke vira health check da assinatura.
           python - <<'PY'
+          import os
           from src.config import Config
           from src.models import Listing
           from src.zoning import ZoningCache, lookup_zoning
           cfg = Config.load()
           # O smoke sempre sonda de verdade: fura o cache quando o registro é
           # de falha (o cache de sucesso fica, evitando chamadas repetidas).
+          # Com REGRID_API_KEY presente, fura sempre: 1 chamada por rodada
+          # confirma que a assinatura paga segue ativa (e avisa quando o
+          # token expirar, em vez de cair para o GIS público em silêncio).
+          regrid_on = bool(os.environ.get("REGRID_API_KEY", "").strip())
           section = cfg.raw.get("zoning_lookup", {})
           cache = ZoningCache(section.get("cache_db", "region_signals.db"))
           key = ZoningCache.key_for(28.5384, -81.3789)
           cached = cache.get(key, max_age_days=3650)
-          if cached is not None and not cached.get("zoning"):
+          if cached is not None and (regrid_on or not cached.get("zoning")):
               cache.conn.execute("DELETE FROM zoning_cache WHERE key = ?", (key,))
               cache.conn.commit()
           cache.close()
@@ -150,6 +156,10 @@ jobs:
           zoning, note = lookup_zoning(listing, cfg)
           if zoning:
               print(f"[smoke] zoning GIS OK: {zoning} | {note}")
+              if regrid_on and "regrid" not in str(note or ""):
+                  print("[smoke] ATENÇÃO: chave Regrid presente, mas a resposta "
+                        "veio do GIS público — confira a assinatura/validade do "
+                        "token em app.regrid.com")
           else:
               print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
           PY
