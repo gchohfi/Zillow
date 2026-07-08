@@ -44,7 +44,9 @@ def _write_evaluations(tmp_path, rows):
 def test_generate_site_without_data_still_writes_page(tmp_path):
     index = generate_site(_cfg(tmp_path))
     assert index.exists()
-    assert "Orlando Land Detector" in index.read_text(encoding="utf-8")
+    html = index.read_text(encoding="utf-8")
+    assert "Orlando Land Detector" in html
+    assert "app.regrid.com/map#ll=" in html
 
 
 def test_build_payload_reads_evaluations_and_parses_numbers(tmp_path):

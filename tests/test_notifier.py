@@ -123,6 +123,7 @@ def test_whatsapp_result_format_includes_details_and_links():
     assert "Google Maps: https://www.google.com/maps/search/?api=1&query=121+Central" in message
     assert "Zillow: https://www.zillow.com/homes/121+Central" in message
     assert "Realtor: https://www.realtor.com/realestateandhomes-search/121+Central" in message
+    assert "Regrid (dono/zoneamento): https://app.regrid.com/map#ll=" in message
 
 
 def test_whatsapp_radar_result_marks_manual_review_not_green_light():
@@ -139,6 +140,7 @@ def test_whatsapp_radar_result_marks_manual_review_not_green_light():
     assert "NAO OFERTAR antes de confirmar zoneamento/county GIS." in message
     assert "Motivo: numeros bons; falta confirmar zoneamento" in message
     assert "Zillow manual: https://www.zillow.com/homes/121+Central" in message
+    assert "Regrid (dono/zoneamento): https://app.regrid.com/map#ll=" in message
 
 
 def test_zapi_whatsapp_results_sends_top_ranked_with_limit(monkeypatch):

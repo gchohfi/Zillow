@@ -706,6 +706,11 @@ function linkParts(r) {
   } else if (r.lat != null && r.lng != null) {
     links.push(['Maps', 'https://www.google.com/maps/search/?api=1&query=' + r.lat + ',' + r.lng]);
   }
+  // Mapa da Regrid nas coordenadas: com conta Pro mostra dono da parcela
+  // e zoneamento — dado-chave para abordagem off-market.
+  if (r.lat != null && r.lng != null) {
+    links.push(['Regrid', 'https://app.regrid.com/map#ll=' + r.lat + ',' + r.lng + '&z=17']);
+  }
   return links;
 }
 const linkCell = r => linkParts(r).map(([t, u]) =>

@@ -248,8 +248,10 @@ pontos sobrepostos em `config.yaml → datasource.rentcast.search_points`.
 
 O alerta por WhatsApp manda uma mensagem curta por oportunidade com endereço,
 segmento, preço, ARV, lucro, margem, distância e links automáticos para Google
-Maps, Zillow e Realtor. Se a fonte trouxer o link original da listagem, ele
-também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
+Maps, Zillow, Realtor e para o **mapa da Regrid nas coordenadas do lote** (com
+uma conta Regrid Pro logada, mostra o dono da parcela e o zoneamento — dado
+chave para abordagem off-market). Se a fonte trouxer o link original da
+listagem, ele também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
 oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
 
 Além dos alertas de oportunidade, `config.yaml → notifications.whatsapp_run_summary`
