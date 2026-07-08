@@ -102,6 +102,13 @@ def send_whatsapp_status(message: str, dry_run: bool = False) -> None:
     _maybe_send_zapi_whatsapp(message)
 
 
+def _regrid_map_url(lat: float, lng: float) -> str:
+    """Link do mapa da Regrid nas coordenadas do lote (conta Pro mostra
+    dono da parcela e zoneamento). Se o formato do hash mudar, o mapa
+    abre na visão padrão e a busca manual continua funcionando."""
+    return f"https://app.regrid.com/map#ll={lat:.6f},{lng:.6f}&z=17"
+
+
 def _format_whatsapp_result(r: ViabilityResult) -> str:
     listing = r.listing
     raw = listing.raw or {}
@@ -159,6 +166,7 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
         f"Zillow: https://www.zillow.com/homes/{zillow_query}_rb/",
         f"Realtor: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+        f"Regrid (dono/zoneamento): {_regrid_map_url(listing.lat, listing.lng)}",
     ])
     return "\n".join(lines)
 
@@ -222,6 +230,7 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
         f"Zillow manual: https://www.zillow.com/homes/{zillow_query}_rb/",
         f"Realtor manual: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+        f"Regrid (dono/zoneamento): {_regrid_map_url(listing.lat, listing.lng)}",
     ])
     return "\n".join(lines)
 
