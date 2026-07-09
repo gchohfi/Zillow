@@ -47,6 +47,8 @@ def test_generate_site_without_data_still_writes_page(tmp_path):
     html = index.read_text(encoding="utf-8")
     assert "Orlando Land Detector" in html
     assert "app.regrid.com/map#ll=" in html
+    data = json.loads((index.parent / "data.json").read_text(encoding="utf-8"))
+    assert "rows" in data and "generated_at" in data
 
 
 def test_build_payload_reads_evaluations_and_parses_numbers(tmp_path):

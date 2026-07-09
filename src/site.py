@@ -245,6 +245,13 @@ def generate_site(cfg: Config | None = None, out_dir: str | None = None) -> Path
     index = out / "index.html"
     index.write_text(html, encoding="utf-8")
 
+    # O mesmo payload em JSON puro, para apps externos (Lovable, planilhas,
+    # scripts) consumirem sem parsear HTML. GitHub Pages serve com CORS
+    # aberto, então qualquer front-end consegue buscar direto.
+    (out / "data.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+
     # Publica também os CSVs para download direto pelo link do dashboard.
     output_cfg = cfg.raw.get("output", {})
     for key in ("csv_path", "evaluations_csv_path"):
