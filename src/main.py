@@ -57,6 +57,15 @@ def _format_run_summary(
     return "\n".join(lines)
 
 
+def _seen_store_path(cfg: Config, *, use_mock: bool, dry_run: bool) -> str:
+    """Escolhe a memória de vistos sem duplicar efeitos colaterais em mock."""
+    if use_mock and dry_run:
+        # Smoke tests/Codex com mock precisam ser reexecutáveis. Quando o mock
+        # não é dry-run, mantemos persistência para não repetir CSV/alertas.
+        return ":memory:"
+    return cfg.db_path
+
+
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
     cfg = Config.load()
     config_errors = validate_config(cfg)
@@ -70,7 +79,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     except RuntimeError as exc:
         print(f"[config] {exc}")
         return
-    store = SeenStore(":memory:" if use_mock else cfg.db_path)
+    store = SeenStore(_seen_store_path(cfg, use_mock=use_mock, dry_run=dry_run))
 
     search = cfg.search
     center_lat, center_lng = search["center_lat"], search["center_lng"]
