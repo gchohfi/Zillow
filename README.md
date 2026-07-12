@@ -136,20 +136,20 @@ Para mudar a frequência, edite o cron no workflow:
 - cron: "0 0,5,10,15,20 * * *"
 ```
 
-### Resumo diário por e-mail
+### Resumo diário (sinal de vida)
 
-Além dos alertas de cada rodada, dá para receber **um resumo consolidado 1x ao dia**
-(janela em `config.yaml → summary.period_hours`). Ele lê o `opportunities.csv` e
-manda tudo junto, ordenado pela maior margem:
+Além dos alertas de cada rodada, o workflow `.github/workflows/summary.yml`
+manda **um resumo consolidado 1x ao dia** (12:00 UTC = 8h de Orlando no horário
+de verão) por WhatsApp/e-mail/Telegram, com a janela de `config.yaml →
+summary.period_hours`. Ele **sempre envia** — mesmo sem oportunidade nova —
+com as contagens do dia (avaliados, viáveis, radar) e o link do dashboard,
+para que silêncio nunca deixe dúvida de que o sistema está rodando.
+
+Para rodar manualmente:
 
 ```bash
 python -m src.summary            # envia o resumo
 python -m src.summary --dry-run  # só mostra no console
-```
-
-No cron, por exemplo todo dia às 8h:
-```
-0 8 * * * cd /caminho/orlando-land-detector && .venv/bin/python -m src.summary >> run.log 2>&1
 ```
 
 ### Filtro de tamanho mínimo de lote
