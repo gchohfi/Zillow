@@ -185,8 +185,9 @@ def test_cached_signals_for_zips_reads_without_network(tmp_path):
 
 
 def test_overpass_falls_back_to_mirror(tmp_path, monkeypatch):
-    from src.region_signals import _fetch_overpass_counts
     import requests as req
+
+    from src.region_signals import _fetch_overpass_counts
 
     attempts = []
 
@@ -257,8 +258,9 @@ def test_zip_centroids_from_csv(tmp_path):
 
 
 def test_geocode_falls_back_to_photon(tmp_path, monkeypatch):
-    from src.region_signals import _geocode_zip
     import requests as req
+
+    from src.region_signals import _geocode_zip
 
     def fake_get(url, params=None, timeout=None, **kwargs):
         if "nominatim" in url:

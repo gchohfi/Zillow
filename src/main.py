@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 
-from .config import Config, env, validate_config
-from .availability import check_availability
 from .arv import enrich_arv
+from .availability import check_availability
+from .config import Config, env, validate_config
 from .datasource import get_source
 from .geo import within_radius
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
@@ -58,12 +58,20 @@ def _format_run_summary(
 
 
 def _seen_store_path(cfg: Config, *, use_mock: bool, dry_run: bool) -> str:
-    """Escolhe a memória de vistos sem duplicar efeitos colaterais em mock."""
-    if use_mock and dry_run:
-        # Smoke tests/Codex com mock precisam ser reexecutáveis. Quando o mock
-        # não é dry-run, mantemos persistência para não repetir CSV/alertas.
+    """Dry-runs nunca consomem a memória persistente de oportunidades."""
+    if dry_run:
         return ":memory:"
     return cfg.db_path
+
+
+def _record_failed(store: SeenStore, results: list, exc: Exception) -> None:
+    """Mantém falhas recuperáveis e visíveis no ledger operacional."""
+    for result in results:
+        store.record_delivery(
+            result.listing,
+            "failed",
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def run(use_mock: bool = False, dry_run: bool = False) -> None:
@@ -85,8 +93,10 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     center_lat, center_lng = search["center_lat"], search["center_lng"]
     radius_km = search["radius_km"]
 
-    print(f"Buscando terrenos num raio de {radius_km} km de Orlando "
-          f"({'mock' if use_mock else source.__class__.__name__})...")
+    print(
+        f"Buscando terrenos num raio de {radius_km} km de Orlando "
+        f"({'mock' if use_mock else source.__class__.__name__})..."
+    )
 
     listings = source.fetch_new_land_listings(cfg)
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
@@ -118,9 +128,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         zoning_cache = ZoningCache(zoning_cfg.get("cache_db", "region_signals.db"))
 
     for listing in listings:
-        inside, dist = within_radius(
-            center_lat, center_lng, listing.lat, listing.lng, radius_km
-        )
+        inside, dist = within_radius(center_lat, center_lng, listing.lat, listing.lng, radius_km)
         listing.distance_km = dist
         if not inside:
             n_out_of_radius += 1
@@ -164,8 +172,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
                 result.growth_score = signals.get("score")
                 result.growth_signals = signals
         evaluated_results.append(result)
-
-        store.mark_seen(listing)   # marca como visto somente depois da avaliação
+        store.record_delivery(listing, "evaluated")
         if result.is_viable:
             viable_new.append(result)
         elif is_radar_candidate(result):
@@ -173,29 +180,71 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         else:
             n_not_viable += 1
 
-    print(f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
-          f"indisponíveis/provavelmente antigas: {n_unavailable} | "
-          f"radar: {len(radar_candidates)} | reprovadas: {n_not_viable} | falhas: {n_failed} | "
-          f"viáveis NOVOS: {len(viable_new)}")
+    print(
+        f"  fora do raio: {n_out_of_radius} | já vistos: {n_already_seen} | "
+        f"indisponíveis/provavelmente antigas: {n_unavailable} | "
+        f"radar: {len(radar_candidates)} | reprovadas: {n_not_viable} | falhas: {n_failed} | "
+        f"viáveis NOVOS: {len(viable_new)}"
+    )
     if zoning_cache is not None:
         print(f"  [zoning] uso do solo confirmado via GIS: {n_zoning_confirmed}")
 
-    # Grava as oportunidades viáveis na planilha CSV.
-    csv_path = cfg.raw.get("output", {}).get("csv_path")
-    if csv_path and viable_new:
-        append_results(viable_new, csv_path)
-    evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
-    if evaluations_csv_path and evaluated_results:
-        append_evaluations(evaluated_results, evaluations_csv_path)
+    rejected_results = [
+        result
+        for result in evaluated_results
+        if not result.is_viable and result not in radar_candidates
+    ]
 
-    notify(viable_new, dry_run=dry_run)
+    # Dry-run é somente leitura: mostra resultados, mas não toca banco persistente ou CSV.
+    csv_path = cfg.raw.get("output", {}).get("csv_path")
+    evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
+    if not dry_run:
+        try:
+            if csv_path and viable_new:
+                append_results(viable_new, csv_path)
+            if evaluations_csv_path and evaluated_results:
+                append_evaluations(evaluated_results, evaluations_csv_path)
+            for result in evaluated_results:
+                store.record_delivery(result.listing, "outputs_written")
+        except Exception as exc:
+            _record_failed(store, evaluated_results, exc)
+            raise
+
+        # Reprovadas não têm alerta; os outputs concluídos encerram seu processamento.
+        for result in rejected_results:
+            store.mark_seen(result.listing)
+
+    try:
+        if notify(viable_new, dry_run=dry_run) is False:
+            raise RuntimeError("um ou mais canais de notificação falharam")
+        if not dry_run:
+            for result in viable_new:
+                store.record_delivery(result.listing, "notification_sent")
+                store.mark_seen(result.listing)
+    except Exception as exc:
+        _record_failed(store, viable_new, exc)
+        raise
+
     radar_cfg = cfg.raw.get("radar", {})
     if radar_cfg.get("enabled", False) and radar_cfg.get("send_whatsapp", True):
-        notify_radar(
-            radar_candidates,
-            dry_run=dry_run,
-            max_messages=int(radar_cfg.get("max_candidates", 10) or 10),
-        )
+        try:
+            radar_sent = notify_radar(
+                radar_candidates,
+                dry_run=dry_run,
+                max_messages=int(radar_cfg.get("max_candidates", 10) or 10),
+            )
+            if radar_sent is False:
+                raise RuntimeError("um ou mais alertas de Radar falharam")
+            if not dry_run:
+                for result in radar_candidates:
+                    store.record_delivery(result.listing, "notification_sent")
+                    store.mark_seen(result.listing)
+        except Exception as exc:
+            _record_failed(store, radar_candidates, exc)
+            raise
+    elif not dry_run:
+        for result in radar_candidates:
+            store.mark_seen(result.listing)
     if cfg.raw.get("notifications", {}).get("whatsapp_run_summary", {}).get("enabled", False):
         summary = _format_run_summary(
             source_name="mock" if use_mock else source.__class__.__name__,
@@ -230,12 +279,14 @@ def main() -> None:
         description="Detector de oportunidades de terreno (spec build) perto de Orlando."
     )
     parser.add_argument(
-        "--mock", action="store_true",
+        "--mock",
+        action="store_true",
         help="usa dados de exemplo, sem precisar de chave de API",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
-        help="mostra no console mas não envia alertas externos",
+        "--dry-run",
+        action="store_true",
+        help="somente mostra no console; não grava banco/CSV nem envia alertas",
     )
     args = parser.parse_args()
     run(use_mock=args.mock, dry_run=args.dry_run)

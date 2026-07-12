@@ -63,14 +63,16 @@ def test_zapi_whatsapp_payload(monkeypatch):
 
     monkeypatch.setattr("src.notifier.requests.post", fake_post)
 
-    _maybe_send_zapi_whatsapp("hello")
+    assert _maybe_send_zapi_whatsapp("hello") is True
 
-    assert calls == [{
-        "url": "https://api.z-api.io/instances/instance-id/token/instance-token/send-text",
-        "headers": {"Content-Type": "application/json", "Client-Token": "client-token"},
-        "json": {"phone": "15551234567", "message": "hello"},
-        "timeout": 30,
-    }]
+    assert calls == [
+        {
+            "url": "https://api.z-api.io/instances/instance-id/token/instance-token/send-text",
+            "headers": {"Content-Type": "application/json", "Client-Token": "client-token"},
+            "json": {"phone": "15551234567", "message": "hello"},
+            "timeout": 30,
+        }
+    ]
 
 
 def test_zapi_whatsapp_payload_without_client_token(monkeypatch):
@@ -86,14 +88,16 @@ def test_zapi_whatsapp_payload_without_client_token(monkeypatch):
 
     monkeypatch.setattr("src.notifier.requests.post", fake_post)
 
-    _maybe_send_zapi_whatsapp("hello")
+    assert _maybe_send_zapi_whatsapp("hello") is True
 
-    assert calls == [{
-        "url": "https://api.z-api.io/instances/instance-id/token/instance-token/send-text",
-        "headers": {"Content-Type": "application/json"},
-        "json": {"phone": "15551234567", "message": "hello"},
-        "timeout": 30,
-    }]
+    assert calls == [
+        {
+            "url": "https://api.z-api.io/instances/instance-id/token/instance-token/send-text",
+            "headers": {"Content-Type": "application/json"},
+            "json": {"phone": "15551234567", "message": "hello"},
+            "timeout": 30,
+        }
+    ]
 
 
 def test_zapi_whatsapp_skips_when_not_configured(monkeypatch):
@@ -104,7 +108,7 @@ def test_zapi_whatsapp_skips_when_not_configured(monkeypatch):
     monkeypatch.delenv("ZAPI_PHONE", raising=False)
     monkeypatch.setattr("src.notifier.requests.post", lambda *args, **kwargs: calls.append(kwargs))
 
-    _maybe_send_zapi_whatsapp("hello")
+    assert _maybe_send_zapi_whatsapp("hello") is True
 
     assert calls == []
 
@@ -114,7 +118,10 @@ def test_whatsapp_result_format_includes_details_and_links():
 
     assert "Oportunidade Orlando Land" in message
     assert "121 Central Ave, Davenport, FL 33896" in message
-    assert "Mercado: Alta com cautela - Kissimmee / Four Corners / Davenport / ChampionsGate" in message
+    assert (
+        "Mercado: Alta com cautela - Kissimmee / Four Corners / Davenport / ChampionsGate"
+        in message
+    )
     assert "ZIP: 33896" in message
     assert "Tese: STR legal-by-address, SFR hybrid" in message
     assert "Atencoes: checar STR legality por endereco; checar HOA/CDD" in message
@@ -156,13 +163,27 @@ def test_zapi_whatsapp_results_sends_top_ranked_with_limit(monkeypatch):
 
     monkeypatch.setattr("src.notifier.requests.post", fake_post)
 
-    _maybe_send_zapi_whatsapp_results([
-        _result(address="Weak Lot", margin=0.18, profit=10),
-        _result(address="Best Lot", margin=0.25, profit=20),
-        _result(address="Second Lot", margin=0.22, profit=30),
-    ])
+    _maybe_send_zapi_whatsapp_results(
+        [
+            _result(address="Weak Lot", margin=0.18, profit=10),
+            _result(address="Best Lot", margin=0.25, profit=20),
+            _result(address="Second Lot", margin=0.22, profit=30),
+        ]
+    )
 
     assert calls[0].startswith("[Orlando Land] 3 oportunidades viaveis")
     assert "Best Lot" in calls[1]
     assert "Second Lot" in calls[2]
     assert len(calls) == 3
+
+
+def test_zapi_failure_is_reported_to_caller(monkeypatch):
+    monkeypatch.setenv("ZAPI_INSTANCE_ID", "instance-id")
+    monkeypatch.setenv("ZAPI_INSTANCE_TOKEN", "instance-token")
+    monkeypatch.setenv("ZAPI_PHONE", "15551234567")
+    monkeypatch.setattr(
+        "src.notifier.requests.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("zapi down")),
+    )
+
+    assert _maybe_send_zapi_whatsapp("hello") is False

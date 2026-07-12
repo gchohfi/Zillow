@@ -1,5 +1,5 @@
 requests>=2.31
-urllib3<2
+urllib3>=2.5,<3
 PyYAML>=6.0
 python-dotenv>=1.0
 usaddress>=0.5.10
