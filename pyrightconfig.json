@@ -1,0 +1,17 @@
+{
+  "include": [
+    "src/main.py",
+    "src/storage.py",
+    "src/reporter.py",
+    "src/notifier.py",
+    "src/config.py",
+    "src/models.py"
+  ],
+  "exclude": [".venv"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false
+}

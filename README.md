@@ -72,9 +72,12 @@ python -m src.main --mock
 # Roda de verdade (precisa de RENTCAST_API_KEY no .env):
 python -m src.main
 
-# Só mostra no console, sem mandar alerta:
+# Somente leitura: mostra no console sem gravar banco/CSV ou enviar alertas:
 python -m src.main --mock --dry-run
 ```
+
+O `--dry-run` usa memória efêmera. Assim, uma oportunidade examinada em teste
+continua disponível para a próxima execução real.
 
 ### Saída em planilha (CSV)
 

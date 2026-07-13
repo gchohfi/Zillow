@@ -1,5 +1,7 @@
 """Tests for the batch orchestration behavior."""
 
+import pytest
+
 from src.config import Config
 from src.main import _format_run_summary, run
 from src.models import Listing
@@ -147,12 +149,91 @@ def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
 
     monkeypatch.setattr("src.main.Config.load", lambda: cfg)
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
-    monkeypatch.setattr("src.main.notify", lambda results, dry_run=False: calls.append(len(results)))
+    monkeypatch.setattr(
+        "src.main.notify", lambda results, dry_run=False: calls.append(len(results))
+    )
 
     run(use_mock=True, dry_run=True)
     run(use_mock=True, dry_run=True)
 
     assert calls == [1, 1]
+    assert not (tmp_path / "seen.db").exists()
+    assert not (tmp_path / "opportunities.csv").exists()
+    assert not (tmp_path / "evaluations.csv").exists()
+
+
+def test_mock_live_run_persists_and_deduplicates(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    _zero_site_costs(cfg)
+    calls = []
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [
+                Listing(
+                    id="mock-persistent",
+                    price=12_000,
+                    lat=28.5384,
+                    lng=-81.3789,
+                    address="Mock persistent",
+                    zoning="residential",
+                    lot_size_sqft=8000,
+                )
+            ]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr(
+        "src.main.notify", lambda results, dry_run=False: calls.append(len(results))
+    )
+    monkeypatch.setattr("src.main.send_whatsapp_status", lambda message, dry_run=False: None)
+
+    run(use_mock=True, dry_run=False)
+    run(use_mock=True, dry_run=False)
+
+    assert calls == [1, 0]
+    assert (tmp_path / "seen.db").exists()
+
+
+def test_notification_failure_keeps_listing_retryable(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    _zero_site_costs(cfg)
+    listing = Listing(
+        id="retry-notification",
+        price=12_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Retry notification",
+        zoning="residential",
+        lot_size_sqft=8000,
+    )
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [listing]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr(
+        "src.main.notify",
+        lambda results, dry_run=False: (_ for _ in ()).throw(RuntimeError("notify down")),
+    )
+
+    with pytest.raises(RuntimeError, match="notify down"):
+        run(use_mock=True, dry_run=False)
+
+    from src.storage import SeenStore
+
+    store = SeenStore(str(tmp_path / "seen.db"))
+    assert store.is_new(listing)
+    assert store.get_delivery_status(listing) == ("failed", "RuntimeError: notify down")
+    store.close()
 
 
 def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_path):
@@ -189,7 +270,9 @@ def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_pat
 
     monkeypatch.setattr("src.main.Config.load", lambda: cfg)
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
-    monkeypatch.setattr("src.main.notify", lambda results, dry_run=False: viable_calls.append(len(results)))
+    monkeypatch.setattr(
+        "src.main.notify", lambda results, dry_run=False: viable_calls.append(len(results))
+    )
     monkeypatch.setattr(
         "src.main.notify_radar",
         lambda results, dry_run=False, max_messages=10: radar_calls.append(len(results)),

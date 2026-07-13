@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -29,5 +33,25 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Run tests
-        run: python -m pytest -q
+      - name: Ruff lint
+        run: python -m ruff check src tests
+
+      - name: Ruff format
+        run: >-
+          python -m ruff format --check
+          src/main.py src/storage.py src/reporter.py src/notifier.py
+          tests/test_main.py tests/test_storage.py tests/test_reporter.py
+          tests/test_mock_seen_store_scope.py tests/test_notifier.py
+
+      - name: Pyright
+        run: python -m pyright
+
+      - name: Dependency audit
+        run: python -m pip_audit --cache-dir /tmp/pip-audit -r requirements.txt
+
+      - name: Tests with coverage
+        run: >-
+          python -m pytest -q
+          --cov=src
+          --cov-report=term-missing
+          --cov-fail-under=75

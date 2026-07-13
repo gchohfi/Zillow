@@ -240,8 +240,10 @@ def test_county_source_resolves_url_by_zip(tmp_path, monkeypatch):
 
 def test_failed_lookup_is_cached_and_retried_after_window(tmp_path, monkeypatch):
     from datetime import datetime, timedelta, timezone
-    from src.zoning import ZoningCache
+
     import requests as req
+
+    from src.zoning import ZoningCache
 
     calls = {"n": 0}
 

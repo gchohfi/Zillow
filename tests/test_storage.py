@@ -75,3 +75,20 @@ def test_seen_store_migrates_old_id_primary_key_schema(tmp_path):
     assert not store.is_new(Listing(id="abc", price=50_000, lat=28.5, lng=-81.3))
     assert store.is_new(Listing(id="abc", price=45_000, lat=28.5, lng=-81.3))
     store.close()
+
+
+def test_delivery_status_tracks_failure_and_completion(tmp_path):
+    store = SeenStore(str(tmp_path / "seen.db"))
+    lot = Listing(id="delivery", price=50_000, lat=28.5, lng=-81.3)
+
+    store.record_delivery(lot, "evaluated")
+    assert store.get_delivery_status(lot) == ("evaluated", None)
+
+    store.record_delivery(lot, "failed", error="RuntimeError: webhook down")
+    assert store.get_delivery_status(lot) == ("failed", "RuntimeError: webhook down")
+    assert store.is_new(lot)
+
+    store.mark_seen(lot)
+    assert store.get_delivery_status(lot) == ("completed", None)
+    assert not store.is_new(lot)
+    store.close()

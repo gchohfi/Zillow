@@ -109,12 +109,48 @@ def _ensure_header(csv_path: str, fieldnames: list[str]) -> bool:
     return False
 
 
+def _row_key(row: dict[str, str]) -> str:
+    """Chave estável para tornar retries de append idempotentes."""
+    try:
+        price = str(round(float(row.get("land_price", ""))))
+    except (TypeError, ValueError):
+        price = "unknown"
+    return f"{row.get('id', '')}:{price}"
+
+
+def _result_key(result: ViabilityResult) -> str:
+    return f"{result.listing.id}:{round(result.land_cost)}"
+
+
+def _pending_results(
+    results: list[ViabilityResult],
+    csv_path: str,
+) -> list[ViabilityResult]:
+    """Remove itens já gravados e duplicatas do mesmo lote/preço no lote atual."""
+    existing: set[str] = set()
+    if os.path.exists(csv_path) and os.path.getsize(csv_path) > 0:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            existing = {_row_key(row) for row in csv.DictReader(fh)}
+
+    pending = []
+    for result in results:
+        key = _result_key(result)
+        if key not in existing:
+            pending.append(result)
+            existing.add(key)
+    return pending
+
+
 def append_results(results: list[ViabilityResult], csv_path: str) -> None:
     """Acrescenta as oportunidades viáveis ao CSV (cria com cabeçalho se novo)."""
     if not results:
         return
 
     is_new = _ensure_header(csv_path, _COLUMNS)
+    results = _pending_results(results, csv_path)
+    if not results:
+        print(f"[csv] nenhuma oportunidade nova para acrescentar em {csv_path}")
+        return
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:
@@ -123,44 +159,46 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
             writer.writeheader()
         for r in results:
             L = r.listing
-            writer.writerow({
-                "found_at": now,
-                "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
-                "review_reason": r.review_reason,
-                "tier": r.tier,
-                "zip_code": r.zip_code or "",
-                "market_priority": r.market_priority,
-                "market_region": r.market_region,
-                "market_score": f"{r.market_score:.1f}",
-                "market_strategies": "; ".join(r.market_strategies),
-                "risk_flags": "; ".join(r.risk_flags),
-                "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
-                "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
-                "id": L.id,
-                "address": L.address,
-                "normalized_address": L.normalized_address,
-                "lat": L.lat,
-                "lng": L.lng,
-                "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
-                "land_price": round(r.land_cost),
-                "arv": round(r.arv),
-                "arv_source": r.arv_source,
-                "arv_comps_count": r.arv_comps_count or "",
-                "arv_confidence": r.arv_confidence or "",
-                "total_cost": round(r.total_cost),
-                "purchase_closing_cost": round(r.purchase_closing_cost),
-                "contingency_cost": round(r.contingency_cost),
-                "site_prep_cost": round(r.site_prep_cost),
-                "impact_fees": round(r.impact_fees),
-                "profit": round(r.profit),
-                "margin": f"{r.margin:.3f}",
-                "profit_stress": "" if r.profit_stress is None else round(r.profit_stress),
-                "margin_stress": "" if r.margin_stress is None else f"{r.margin_stress:.3f}",
-                "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
-                "land_to_arv": f"{r.land_to_arv:.3f}",
-                "zoning": L.zoning or "",
-                "url": L.url,
-            })
+            writer.writerow(
+                {
+                    "found_at": now,
+                    "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
+                    "review_reason": r.review_reason,
+                    "tier": r.tier,
+                    "zip_code": r.zip_code or "",
+                    "market_priority": r.market_priority,
+                    "market_region": r.market_region,
+                    "market_score": f"{r.market_score:.1f}",
+                    "market_strategies": "; ".join(r.market_strategies),
+                    "risk_flags": "; ".join(r.risk_flags),
+                    "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
+                    "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
+                    "id": L.id,
+                    "address": L.address,
+                    "normalized_address": L.normalized_address,
+                    "lat": L.lat,
+                    "lng": L.lng,
+                    "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
+                    "land_price": round(r.land_cost),
+                    "arv": round(r.arv),
+                    "arv_source": r.arv_source,
+                    "arv_comps_count": r.arv_comps_count or "",
+                    "arv_confidence": r.arv_confidence or "",
+                    "total_cost": round(r.total_cost),
+                    "purchase_closing_cost": round(r.purchase_closing_cost),
+                    "contingency_cost": round(r.contingency_cost),
+                    "site_prep_cost": round(r.site_prep_cost),
+                    "impact_fees": round(r.impact_fees),
+                    "profit": round(r.profit),
+                    "margin": f"{r.margin:.3f}",
+                    "profit_stress": "" if r.profit_stress is None else round(r.profit_stress),
+                    "margin_stress": "" if r.margin_stress is None else f"{r.margin_stress:.3f}",
+                    "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
+                    "land_to_arv": f"{r.land_to_arv:.3f}",
+                    "zoning": L.zoning or "",
+                    "url": L.url,
+                }
+            )
     print(f"[csv] {len(results)} oportunidade(s) acrescentada(s) em {csv_path}")
 
 
@@ -170,6 +208,10 @@ def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
         return
 
     is_new = _ensure_header(csv_path, _EVALUATION_COLUMNS)
+    results = _pending_results(results, csv_path)
+    if not results:
+        print(f"[csv] nenhuma avaliação nova para acrescentar em {csv_path}")
+        return
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:
@@ -178,44 +220,46 @@ def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
             writer.writeheader()
         for r in results:
             L = r.listing
-            writer.writerow({
-                "found_at": now,
-                "is_viable": "yes" if r.is_viable else "no",
-                "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
-                "review_reason": r.review_reason,
-                "tier": r.tier,
-                "zip_code": r.zip_code or "",
-                "market_priority": r.market_priority,
-                "market_region": r.market_region,
-                "market_score": f"{r.market_score:.1f}",
-                "market_strategies": "; ".join(r.market_strategies),
-                "risk_flags": "; ".join(r.risk_flags),
-                "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
-                "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
-                "reasons": " | ".join(r.reasons),
-                "id": L.id,
-                "address": L.address,
-                "normalized_address": L.normalized_address,
-                "lat": L.lat,
-                "lng": L.lng,
-                "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
-                "land_price": round(r.land_cost),
-                "arv": round(r.arv),
-                "arv_source": r.arv_source,
-                "arv_comps_count": r.arv_comps_count or "",
-                "arv_confidence": r.arv_confidence or "",
-                "total_cost": round(r.total_cost),
-                "purchase_closing_cost": round(r.purchase_closing_cost),
-                "contingency_cost": round(r.contingency_cost),
-                "site_prep_cost": round(r.site_prep_cost),
-                "impact_fees": round(r.impact_fees),
-                "profit": round(r.profit),
-                "margin": f"{r.margin:.3f}",
-                "profit_stress": "" if r.profit_stress is None else round(r.profit_stress),
-                "margin_stress": "" if r.margin_stress is None else f"{r.margin_stress:.3f}",
-                "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
-                "land_to_arv": f"{r.land_to_arv:.3f}",
-                "zoning": L.zoning or "",
-                "url": L.url,
-            })
+            writer.writerow(
+                {
+                    "found_at": now,
+                    "is_viable": "yes" if r.is_viable else "no",
+                    "review_status": r.review_status or ("viavel" if r.is_viable else "reprovado"),
+                    "review_reason": r.review_reason,
+                    "tier": r.tier,
+                    "zip_code": r.zip_code or "",
+                    "market_priority": r.market_priority,
+                    "market_region": r.market_region,
+                    "market_score": f"{r.market_score:.1f}",
+                    "market_strategies": "; ".join(r.market_strategies),
+                    "risk_flags": "; ".join(r.risk_flags),
+                    "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
+                    "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
+                    "reasons": " | ".join(r.reasons),
+                    "id": L.id,
+                    "address": L.address,
+                    "normalized_address": L.normalized_address,
+                    "lat": L.lat,
+                    "lng": L.lng,
+                    "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
+                    "land_price": round(r.land_cost),
+                    "arv": round(r.arv),
+                    "arv_source": r.arv_source,
+                    "arv_comps_count": r.arv_comps_count or "",
+                    "arv_confidence": r.arv_confidence or "",
+                    "total_cost": round(r.total_cost),
+                    "purchase_closing_cost": round(r.purchase_closing_cost),
+                    "contingency_cost": round(r.contingency_cost),
+                    "site_prep_cost": round(r.site_prep_cost),
+                    "impact_fees": round(r.impact_fees),
+                    "profit": round(r.profit),
+                    "margin": f"{r.margin:.3f}",
+                    "profit_stress": "" if r.profit_stress is None else round(r.profit_stress),
+                    "margin_stress": "" if r.margin_stress is None else f"{r.margin_stress:.3f}",
+                    "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
+                    "land_to_arv": f"{r.land_to_arv:.3f}",
+                    "zoning": L.zoning or "",
+                    "url": L.url,
+                }
+            )
     print(f"[csv] {len(results)} avaliação(ões) acrescentada(s) em {csv_path}")
