@@ -135,6 +135,17 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     else:
         carrying_pct = float(costs.get("carrying_cost_pct", 0))
     carrying_cost = carrying_pct * (land_cost + construction_cost)
+    # Seguro sensível a risco climático: zona FEMA de alto risco encarece o
+    # seguro durante a obra (o marcador vem do check de flood, pré-avaliação).
+    flood_high_risk = bool(listing.raw.get("_flood_high_risk"))
+    flood_surcharge_annual = float(
+        cfg.raw.get("red_flags", {}).get("flood", {})
+        .get("insurance_surcharge_annual", 0) or 0
+    )
+    flood_insurance_cost = 0.0
+    if flood_high_risk and flood_surcharge_annual:
+        flood_insurance_cost = flood_surcharge_annual * float(costs.get("carrying_months", 12)) / 12
+        carrying_cost += flood_insurance_cost
     selling_cost = float(costs["selling_cost_pct"]) * arv
 
     total_cost = (
@@ -170,6 +181,7 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
             + site_prep_cost
             + impact_fees
             + carrying_pct * (land_cost + s_construction)
+            + flood_insurance_cost
             + float(costs["selling_cost_pct"]) * s_arv
         )
         profit_stress = s_arv - s_total
@@ -185,6 +197,11 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         reasons.append(
             f"• custos de lote: US$ {site_prep_cost:,.0f} preparação"
             f" + US$ {impact_fees:,.0f} impact fees"
+        )
+    if flood_insurance_cost:
+        reasons.append(
+            f"⚠ seguro de enchente no carrego: +US$ {flood_insurance_cost:,.0f} "
+            f"(zona FEMA de alto risco)"
         )
     if market["region"]:
         reasons.append(
@@ -309,6 +326,8 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         arv_source=arv_source,
         arv_comps_count=listing.arv_comps_count,
         arv_confidence=listing.arv_confidence,
+        flood_zone=str(listing.raw.get("_flood_zone") or ""),
+        flood_high_risk=flood_high_risk,
         zip_code=market["zip_code"],
         market_region=market["region"],
         market_priority=market["priority"],
