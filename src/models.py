@@ -57,6 +57,9 @@ class ViabilityResult:
     impact_fees: float = 0.0       # taxas de impacto do county
     profit_stress: Optional[float] = None   # lucro no cenário pessimista
     margin_stress: Optional[float] = None   # margem no cenário pessimista
+    # Matriz de sensibilidade: choques univariados ordenados pelo estrago
+    # na margem (delta_pp = pontos percentuais perdidos vs. cenário-base)
+    sensitivity: list[dict] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou
     arv_source: str = "config"
     arv_comps_count: Optional[int] = None

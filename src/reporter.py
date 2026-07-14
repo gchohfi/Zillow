@@ -46,6 +46,7 @@ _COLUMNS = [
     "cap_rate",
     "dscr",
     "cash_on_cash",
+    "sensitivity_top",
     "flood_zone",
     "land_to_total_investment",
     "land_to_arv",
@@ -93,12 +94,21 @@ _EVALUATION_COLUMNS = [
     "cap_rate",
     "dscr",
     "cash_on_cash",
+    "sensitivity_top",
     "flood_zone",
     "land_to_total_investment",
     "land_to_arv",
     "zoning",
     "url",
 ]
+
+
+def _sensitivity_summary(r: ViabilityResult, top: int = 3) -> str:
+    """Choques que mais destroem a margem, em string compacta para o CSV."""
+    shocks = [s for s in r.sensitivity if s.get("delta_pp", 0) > 0][:top]
+    return "; ".join(
+        f"{s['label']}: margem {s['margin']:.1%} (-{s['delta_pp']:.1f}pp)" for s in shocks
+    )
 
 
 def _ensure_header(csv_path: str, fieldnames: list[str]) -> bool:
@@ -173,6 +183,7 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
                 "cap_rate": "" if r.cap_rate is None else f"{r.cap_rate:.4f}",
                 "dscr": "" if r.dscr is None else f"{r.dscr:.2f}",
                 "cash_on_cash": "" if r.cash_on_cash is None else f"{r.cash_on_cash:.4f}",
+                "sensitivity_top": _sensitivity_summary(r),
                 "flood_zone": r.flood_zone or "",
                 "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
                 "land_to_arv": f"{r.land_to_arv:.3f}",
@@ -236,6 +247,7 @@ def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
                 "cap_rate": "" if r.cap_rate is None else f"{r.cap_rate:.4f}",
                 "dscr": "" if r.dscr is None else f"{r.dscr:.2f}",
                 "cash_on_cash": "" if r.cash_on_cash is None else f"{r.cash_on_cash:.4f}",
+                "sensitivity_top": _sensitivity_summary(r),
                 "flood_zone": r.flood_zone or "",
                 "land_to_total_investment": f"{r.land_to_total_investment:.3f}",
                 "land_to_arv": f"{r.land_to_arv:.3f}",
