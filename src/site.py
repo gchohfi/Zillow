@@ -53,6 +53,7 @@ _ROW_FIELDS = (
     "cap_rate",
     "dscr",
     "cash_on_cash",
+    "sensitivity_top",
     "flood_zone",
     "zoning",
     "url",

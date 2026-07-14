@@ -412,3 +412,45 @@ def test_flood_high_risk_adds_insurance_surcharge_to_carrying():
     assert result_wet.flood_zone == "AE"
     assert any("seguro de enchente" in reason for reason in result_wet.reasons)
     assert result_dry.flood_high_risk is False
+
+
+def test_sensitivity_matrix_ranks_worst_shocks():
+    cfg_raw = _cfg().raw
+    cfg_raw["costs"] = {
+        "soft_cost_pct": 0.10,
+        "carrying_cost_annual_pct": 0.09,
+        "carrying_months": 12,
+        "selling_cost_pct": 0.07,
+    }
+    cfg_raw["stress"] = {
+        "arv_drop_pct": 0.10,
+        "construction_rise_pct": 0.10,
+        "matrix": {
+            "arv_drop_pct": 0.10,
+            "construction_rise_pct": 0.15,
+            "extra_months": 6,
+            "carrying_rate_add": 0.02,
+            "insurance_add_annual": 5000,
+        },
+    }
+    cfg = Config(raw=cfg_raw)
+    listing = Listing(id="s1", price=50000, lat=28.5, lng=-81.4,
+                      zoning="residential")
+
+    result = evaluate(listing, cfg)
+
+    assert len(result.sensitivity) == 5
+    deltas = [s["delta_pp"] for s in result.sensitivity]
+    assert deltas == sorted(deltas, reverse=True)      # ranking pelo estrago
+    assert all(s["delta_pp"] > 0 for s in result.sensitivity)
+    labels = {s["label"] for s in result.sensitivity}
+    assert any("saída" in x for x in labels)
+    assert any("obra" in x for x in labels)
+    assert any("venda +6" in x for x in labels)
+    assert any("sensibilidade — maior estrago" in reason for reason in result.reasons)
+    # choque univariado não contamina o cenário-base
+    base_margin = result.margin
+    cfg_raw["stress"]["matrix"] = {}
+    result_no_matrix = evaluate(listing, Config(raw=cfg_raw))
+    assert result_no_matrix.margin == base_margin
+    assert result_no_matrix.sensitivity == []

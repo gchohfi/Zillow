@@ -145,6 +145,13 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
             + (f" | DSCR {r.dscr:.2f}" if r.dscr is not None else "")
         )
         lines.append(rent_line)
+    top_shocks = [s for s in r.sensitivity if s.get("delta_pp", 0) > 0][:2]
+    if top_shocks:
+        lines.append(
+            "Vigiar: " + "; ".join(
+                f"{s['label']} derruba margem p/ {s['margin']:.1%}" for s in top_shocks
+            )
+        )
     if r.growth_score is not None:
         lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
         summary = r.growth_signals.get("summary", [])

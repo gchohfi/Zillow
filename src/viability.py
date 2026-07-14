@@ -107,6 +107,66 @@ def resolve_parameters(listing: Listing, cfg: Config) -> tuple[str, dict, dict, 
     return tier_label, build, costs, rules
 
 
+def _project(
+    land_cost: float,
+    arv: float,
+    build: dict,
+    costs: dict,
+    flood_surcharge_annual: float = 0.0,
+    *,
+    arv_mult: float = 1.0,
+    constr_mult: float = 1.0,
+    extra_months: float = 0.0,
+    rate_add: float = 0.0,
+    insurance_add: float = 0.0,
+) -> dict:
+    """Projeta o negócio (base ou com choque univariado) e retorna componentes.
+
+    Os choques modelam a matriz de sensibilidade: preço de saída menor,
+    obra mais cara, venda mais demorada, carrego/juros maiores e choque
+    de seguro. Choques de prazo/juros exigem base anual de carrego
+    (carrying_cost_annual_pct); com percentual fixo eles não se aplicam.
+    """
+    living_area = float(build["living_area_sqft"])
+    s_arv = arv * arv_mult
+    construction = float(build["construction_cost_per_sqft"]) * living_area * constr_mult
+    soft = float(costs["soft_cost_pct"]) * construction
+    closing = float(costs.get("purchase_closing_pct", 0)) * land_cost
+    contingency = float(costs.get("contingency_pct", 0)) * construction
+    site_prep = float(costs.get("site_prep_cost", 0) or 0)
+    impact = float(costs.get("impact_fees", 0) or 0)
+    months = float(costs.get("carrying_months", 12)) + extra_months
+    if "carrying_cost_annual_pct" in costs:
+        carrying = (float(costs["carrying_cost_annual_pct"]) + rate_add) * (
+            months / 12
+        ) * (land_cost + construction)
+    else:
+        carrying = float(costs.get("carrying_cost_pct", 0)) * (land_cost + construction)
+    flood_insurance = (flood_surcharge_annual + insurance_add) * months / 12
+    carrying += flood_insurance
+    selling = float(costs["selling_cost_pct"]) * s_arv
+    total = (
+        land_cost + construction + soft + closing + contingency
+        + site_prep + impact + carrying + selling
+    )
+    profit = s_arv - total
+    return {
+        "arv": s_arv,
+        "construction": construction,
+        "soft": soft,
+        "closing": closing,
+        "contingency": contingency,
+        "site_prep": site_prep,
+        "impact": impact,
+        "carrying": carrying,
+        "flood_insurance": flood_insurance,
+        "selling": selling,
+        "total": total,
+        "profit": profit,
+        "margin": profit / s_arv if s_arv else 0.0,
+    }
+
+
 def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     """Aplica a fórmula de spec build (com parâmetros do segmento) e diz se é viável."""
     land_cost = float(listing.price)
@@ -122,70 +182,73 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
     config_arv = float(build["resale_price_per_sqft"]) * living_area
     arv = float(listing.arv_estimate or config_arv)
     arv_source = listing.arv_source or "config"
-    construction_cost = float(build["construction_cost_per_sqft"]) * living_area
-    soft_cost = float(costs["soft_cost_pct"]) * construction_cost
-    purchase_closing_cost = float(costs.get("purchase_closing_pct", 0)) * land_cost
-    contingency_cost = float(costs.get("contingency_pct", 0)) * construction_cost
-    site_prep_cost = float(costs.get("site_prep_cost", 0) or 0)
-    impact_fees = float(costs.get("impact_fees", 0) or 0)
-    if "carrying_cost_annual_pct" in costs:
-        carrying_pct = float(costs["carrying_cost_annual_pct"]) * (
-            float(costs.get("carrying_months", 12)) / 12
-        )
-    else:
-        carrying_pct = float(costs.get("carrying_cost_pct", 0))
-    carrying_cost = carrying_pct * (land_cost + construction_cost)
     # Seguro sensível a risco climático: zona FEMA de alto risco encarece o
     # seguro durante a obra (o marcador vem do check de flood, pré-avaliação).
     flood_high_risk = bool(listing.raw.get("_flood_high_risk"))
-    flood_surcharge_annual = float(
-        cfg.raw.get("red_flags", {}).get("flood", {})
-        .get("insurance_surcharge_annual", 0) or 0
-    )
-    flood_insurance_cost = 0.0
-    if flood_high_risk and flood_surcharge_annual:
-        flood_insurance_cost = flood_surcharge_annual * float(costs.get("carrying_months", 12)) / 12
-        carrying_cost += flood_insurance_cost
-    selling_cost = float(costs["selling_cost_pct"]) * arv
+    flood_surcharge = 0.0
+    if flood_high_risk:
+        flood_surcharge = float(
+            cfg.raw.get("red_flags", {}).get("flood", {})
+            .get("insurance_surcharge_annual", 0) or 0
+        )
 
-    total_cost = (
-        land_cost
-        + construction_cost
-        + soft_cost
-        + purchase_closing_cost
-        + contingency_cost
-        + site_prep_cost
-        + impact_fees
-        + carrying_cost
-        + selling_cost
-    )
-    profit = arv - total_cost
-    margin = profit / arv if arv else 0.0
+    base = _project(land_cost, arv, build, costs, flood_surcharge)
+    construction_cost = base["construction"]
+    soft_cost = base["soft"]
+    purchase_closing_cost = base["closing"]
+    contingency_cost = base["contingency"]
+    site_prep_cost = base["site_prep"]
+    impact_fees = base["impact"]
+    carrying_cost = base["carrying"]
+    flood_insurance_cost = base["flood_insurance"]
+    selling_cost = base["selling"]
+    total_cost = base["total"]
+    profit = base["profit"]
+    margin = base["margin"]
     land_to_arv = land_cost / arv if arv else float("inf")
     land_to_total_investment = land_cost / total_cost if total_cost else float("inf")
 
-    # --- Cenário pessimista (análise de sensibilidade) ---
+    # --- Cenário pessimista (choques combinados) ---
     stress_cfg = cfg.raw.get("stress", {})
     arv_drop = float(stress_cfg.get("arv_drop_pct", 0.10) or 0)
     cost_rise = float(stress_cfg.get("construction_rise_pct", 0.10) or 0)
     profit_stress = margin_stress = None
     if arv_drop or cost_rise:
-        s_arv = arv * (1 - arv_drop)
-        s_construction = construction_cost * (1 + cost_rise)
-        s_total = (
-            land_cost
-            + s_construction
-            + float(costs["soft_cost_pct"]) * s_construction
-            + purchase_closing_cost
-            + float(costs.get("contingency_pct", 0)) * s_construction
-            + site_prep_cost
-            + impact_fees
-            + carrying_pct * (land_cost + s_construction)
-            + flood_insurance_cost
-            + float(costs["selling_cost_pct"]) * s_arv
+        stressed = _project(
+            land_cost, arv, build, costs, flood_surcharge,
+            arv_mult=1 - arv_drop, constr_mult=1 + cost_rise,
         )
-        profit_stress = s_arv - s_total
-        margin_stress = profit_stress / s_arv if s_arv else 0.0
+        profit_stress = stressed["profit"]
+        margin_stress = stressed["margin"]
+
+    # --- Matriz de sensibilidade (choques univariados, ranking do estrago) ---
+    sensitivity: list[dict] = []
+    matrix_cfg = stress_cfg.get("matrix") or {}
+    if matrix_cfg and arv:
+        shocks: list[tuple[str, dict]] = []
+        v = float(matrix_cfg.get("arv_drop_pct", 0) or 0)
+        if v:
+            shocks.append((f"saída −{v:.0%}", {"arv_mult": 1 - v}))
+        v = float(matrix_cfg.get("construction_rise_pct", 0) or 0)
+        if v:
+            shocks.append((f"obra +{v:.0%}", {"constr_mult": 1 + v}))
+        v = float(matrix_cfg.get("extra_months", 0) or 0)
+        if v:
+            shocks.append((f"venda +{v:.0f} meses", {"extra_months": v}))
+        v = float(matrix_cfg.get("carrying_rate_add", 0) or 0)
+        if v:
+            shocks.append((f"juros/carrego +{v * 100:.0f}pp", {"rate_add": v}))
+        v = float(matrix_cfg.get("insurance_add_annual", 0) or 0)
+        if v:
+            shocks.append((f"seguro +US$ {v:,.0f}/ano", {"insurance_add": v}))
+        for label, kwargs in shocks:
+            shocked = _project(land_cost, arv, build, costs, flood_surcharge, **kwargs)
+            sensitivity.append({
+                "label": label,
+                "margin": round(shocked["margin"], 4),
+                "delta_pp": round((margin - shocked["margin"]) * 100, 2),
+            })
+        sensitivity.sort(key=lambda s: s["delta_pp"], reverse=True)
 
     # --- Regras de corte ---
     reasons: list[str] = []
@@ -244,6 +307,17 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         reasons.append(label)
         if margin_stress < 0:
             market["risk_flags"].append("margem negativa no cenario pessimista")
+    top_shocks = [s for s in sensitivity if s["delta_pp"] > 0][:2]
+    if top_shocks:
+        detail = "; ".join(
+            f"{s['label']} → margem {s['margin']:.1%} (−{s['delta_pp']:.1f}pp)"
+            for s in top_shocks
+        )
+        reasons.append(f"• sensibilidade — maior estrago: {detail}")
+        if any(s["margin"] < 0 for s in top_shocks):
+            market["risk_flags"].append(
+                f"margem vira negativa com {top_shocks[0]['label']}"
+            )
 
     max_land_price = float(rules.get("max_land_price") or 0)
     if max_land_price > 0:
@@ -318,6 +392,7 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         margin=margin,
         profit_stress=profit_stress,
         margin_stress=margin_stress,
+        sensitivity=sensitivity,
         land_to_arv=land_to_arv,
         land_to_total_investment=land_to_total_investment,
         is_viable=is_viable,

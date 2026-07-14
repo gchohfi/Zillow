@@ -95,6 +95,14 @@ county_costs:
 stress:
   arv_drop_pct: 0.10           # ARV 10% menor
   construction_rise_pct: 0.10  # obra 10% mais cara
+  # Matriz de sensibilidade: cada choque é aplicado SOZINHO e o alerta mostra
+  # os 2 que mais destroem a margem — para você saber qual premissa vigiar.
+  matrix:
+    arv_drop_pct: 0.10         # preço de saída 10% menor
+    construction_rise_pct: 0.15  # obra 15% acima do orçado
+    extra_months: 6            # venda demora +6 meses de carrego
+    carrying_rate_add: 0.02    # juros/carrego +2pp ao ano (refi mais caro)
+    insurance_add_annual: 5000 # choque de seguro (US$/ano)
 
 # ---- ARV por comps reais (RentCast AVM) ----
 # Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
