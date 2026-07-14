@@ -153,3 +153,42 @@ def test_reasons_trail_only_for_open_opportunities(tmp_path):
     by_addr = {row["address"]: row for row in payload["rows"]}
     assert "zoneamento desconhecido" in by_addr["Radar"]["reasons"]
     assert by_addr["Reprovada"]["reasons"] == ""
+
+
+def test_generate_site_writes_memo_for_viable_and_radar_only(tmp_path):
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "is_viable": "yes", "review_status": "viavel",
+         "id": "opp-1", "address": "1 Buy St, Orlando, FL 32827",
+         "lat": "28.5", "lng": "-81.3", "land_price": "45000", "arv": "420000",
+         "profit": "80000", "margin": "0.190",
+         "risk_flags": "checar HOA", "reasons": "✓ margem ok | ⚠ checar HOA"},
+        {"found_at": RECENT, "is_viable": "no",
+         "review_status": "radar_zoneamento_pendente",
+         "id": "opp 2/estranho", "address": "2 Hold St", "lat": "28.5", "lng": "-81.3"},
+        {"found_at": RECENT, "is_viable": "no", "review_status": "reprovada",
+         "id": "opp-3", "address": "3 Pass St", "lat": "28.5", "lng": "-81.3"},
+    ])
+
+    index = generate_site(_cfg(tmp_path))
+    memo_dir = index.parent / "memo"
+
+    viable_memo = (memo_dir / "opp-1.html").read_text(encoding="utf-8")
+    assert "COMPRAR" in viable_memo
+    assert "1 Buy St" in viable_memo
+    assert "checar HOA" in viable_memo
+    radar_memo = (memo_dir / "opp-2-estranho.html").read_text(encoding="utf-8")
+    assert "NEGOCIAR" in radar_memo
+    assert not (memo_dir / "opp-3.html").exists()
+
+    data = json.loads((index.parent / "data.json").read_text(encoding="utf-8"))
+    memos = {r["id"]: r.get("memo") for r in data["rows"]}
+    assert memos.get("opp-1") == "memo/opp-1.html"
+    assert not memos.get("opp-3")
+
+
+def test_dashboard_includes_compare_section(tmp_path):
+    index = generate_site(_cfg(tmp_path))
+    html = index.read_text(encoding="utf-8")
+    assert "tbl-compare" in html
+    assert "renderCompare" in html
+    assert "Comparador" in html

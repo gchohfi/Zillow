@@ -9,6 +9,7 @@ from urllib.parse import quote_plus
 import requests
 
 from .config import env
+from .memo import memo_slug
 from .models import ViabilityResult
 
 
@@ -183,6 +184,9 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Realtor: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
         f"Regrid (dono/zoneamento): {_regrid_map_url(listing.lat, listing.lng)}",
     ])
+    dashboard = (env("DASHBOARD_URL") or "").strip()
+    if dashboard:
+        lines.append(f"Memorando: {dashboard.rstrip('/')}/memo/{memo_slug(listing.id)}.html")
     return "\n".join(lines)
 
 

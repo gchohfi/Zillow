@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Config
+from .memo import build_memo_html, memo_slug
 from .region_signals import cached_signals_for_zips
 
 MAX_EMBEDDED_ROWS = 1000
@@ -267,8 +268,30 @@ def generate_site(cfg: Config | None = None, out_dir: str | None = None) -> Path
         if path and os.path.exists(path):
             shutil.copy(path, out / Path(path).name)
 
+    # Memorando de decisão por oportunidade viável/radar da janela.
+    memo_dir = out / "memo"
+    memo_dir.mkdir(exist_ok=True)
+    n_memos = 0
+    for row in payload["rows"]:
+        status = str(row.get("review_status") or "")
+        if status == "viavel" or status.startswith("radar"):
+            slug = memo_slug(str(row.get("id") or ""))
+            (memo_dir / f"{slug}.html").write_text(
+                build_memo_html(row, generated_at=payload.get("generated_at")),
+                encoding="utf-8",
+            )
+            row["memo"] = f"memo/{slug}.html"
+            n_memos += 1
+
+    # Regrava o payload com os links de memo incluídos.
+    html = _TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
+    index.write_text(html, encoding="utf-8")
+    (out / "data.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+
     print(f"[site] dashboard gerado em {index} ({payload['total_rows']} avaliações, "
-          f"últimos {payload['period_days']:.0f} dias)")
+          f"últimos {payload['period_days']:.0f} dias, {n_memos} memo(s))")
     return index
 
 
@@ -613,6 +636,12 @@ _TEMPLATE = """<!DOCTYPE html>
     <button class="show-more" id="show-more-regions" style="display:none"></button>
   </section>
 
+  <section id="sec-compare">
+    <h2>Comparador — abertas lado a lado</h2>
+    <p class="hint">Mesma base de premissas (custos, prazo e dívida do config), ordenado pela margem — para decidir entre dois terrenos em segundos.</p>
+    <div class="card table-scroll"><table id="tbl-compare"></table></div>
+  </section>
+
   <details class="tbl">
     <summary>Tabela completa (todas as avaliações do período, inclusive reprovadas)</summary>
     <div class="card table-scroll"><table id="tbl-all"></table></div>
@@ -726,6 +755,7 @@ function linkParts(r) {
   if (r.lat != null && r.lng != null) {
     links.push(['Regrid', 'https://app.regrid.com/map#ll=' + r.lat + ',' + r.lng + '&z=17']);
   }
+  if (r.memo) links.push(['Memo', r.memo]);
   return links;
 }
 const linkCell = r => linkParts(r).map(([t, u]) =>
@@ -949,6 +979,42 @@ function renderTable(el, data, emptyMsg) {
   el.innerHTML = head + body;
 }
 
+const COMPARE_LIMIT = 12;
+
+function renderCompare() {
+  const el = document.getElementById("tbl-compare");
+  const open = rows
+    .filter(r => r.review_status === "viavel" || r.review_status.startsWith("radar"))
+    .filter(r => !dismissed.has(r.id))
+    .sort((a, b) => (b.margin || -1) - (a.margin || -1))
+    .slice(0, COMPARE_LIMIT);
+  if (open.length < 2) {
+    document.getElementById("sec-compare").style.display = "none";
+    return;
+  }
+  const cols = [
+    { h: "Endereço", c: r => (r.memo
+        ? '<a href="' + r.memo + '" target="_blank" rel="noopener">' + esc(r.address || r.id) + "</a>"
+        : esc(r.address || r.id)) },
+    { h: "Status", c: r => r.review_status === "viavel" ? "✓ viável" : "⚠ radar" },
+    { h: "Terreno", num: true, c: r => fmtMoney(r.land_price) },
+    { h: "Investimento", num: true, c: r => fmtMoney(r.total_cost) },
+    { h: "Lucro", num: true, c: r => fmtMoney(r.profit) },
+    { h: "Margem", num: true, c: r => fmtPct(r.margin) },
+    { h: "Pessimista", num: true, c: r => fmtPct(r.margin_stress) },
+    { h: "Cap (renda)", num: true, c: r => fmtPct(r.cap_rate) },
+    { h: "DSCR", num: true, c: r => r.dscr == null ? "n/d" : r.dscr.toFixed(2) },
+    { h: "Mercado", num: true, c: r => r.market_score == null ? "n/d" : r.market_score.toFixed(1) },
+    { h: "Crescimento", num: true, c: r => r.growth_score == null ? "n/d" : r.growth_score.toFixed(1) },
+    { h: "Vigiar", c: r => esc((r.sensitivity_top || "").split(";")[0] || "—") },
+  ];
+  el.innerHTML =
+    "<thead><tr>" + cols.map(c =>
+      "<th" + (c.num ? ' class="num"' : "") + ">" + c.h + "</th>").join("") + "</tr></thead>" +
+    "<tbody>" + open.map(r => "<tr>" + cols.map(c =>
+      "<td" + (c.num ? ' class="num"' : "") + ">" + c.c(r) + "</td>").join("") + "</tr>").join("") + "</tbody>";
+}
+
 let showAllRegions = false;
 const REGION_LIMIT = 8;
 
@@ -1025,6 +1091,7 @@ function renderAll() {
   // completa continua mostrando tudo, para auditoria).
   const mapVisible = showDismissed ? visible : visible.filter(r => !dismissed.has(r.id));
   renderMarkers(mapVisible);
+  renderCompare();
 }
 
 const tblDetails = document.querySelector("details.tbl");

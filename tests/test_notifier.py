@@ -166,3 +166,9 @@ def test_zapi_whatsapp_results_sends_top_ranked_with_limit(monkeypatch):
     assert "Best Lot" in calls[1]
     assert "Second Lot" in calls[2]
     assert len(calls) == 3
+
+
+def test_whatsapp_result_includes_memo_link_when_dashboard_set(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_URL", "https://example.github.io/Zillow/")
+    message = _format_whatsapp_result(_result())
+    assert "Memorando: https://example.github.io/Zillow/memo/" in message
