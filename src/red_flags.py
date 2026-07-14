@@ -16,6 +16,8 @@ class RedFlagResult:
     reasons: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
     blocks_alert: bool = False
+    zone: str = ""              # zona FEMA (ex.: AE); vazio se fora/indisponível
+    high_risk: bool = False     # SFHA ou zona listada como alto risco
 
 
 def _truthy_sfha(value: Any) -> bool:
@@ -91,14 +93,34 @@ def check_flood_red_flag(listing: Listing, cfg: Config) -> RedFlagResult:
             reasons=[f"⚠ {label}"],
             risk_flags=[label],
             blocks_alert=block,
+            zone=zone,
+            high_risk=True,
         )
 
-    return RedFlagResult(reasons=[f"✓ {label}"])
+    return RedFlagResult(reasons=[f"✓ {label}"], zone=zone)
 
 
-def apply_red_flags(result: ViabilityResult, cfg: Config) -> None:
+def mark_flood_zone(listing: Listing, cfg: Config) -> RedFlagResult:
+    """Consulta a zona FEMA ANTES da avaliação e marca a listagem.
+
+    O motor de viabilidade lê o marcador para encarecer o seguro do
+    carrego em zona de alto risco. O RedFlagResult retornado deve ser
+    passado a apply_red_flags depois, para não consultar a FEMA 2x.
+    """
+    flood = check_flood_red_flag(listing, cfg)
+    if flood.high_risk:
+        listing.raw["_flood_high_risk"] = True
+    if flood.zone:
+        listing.raw["_flood_zone"] = flood.zone
+    return flood
+
+
+def apply_red_flags(
+    result: ViabilityResult, cfg: Config, flood: RedFlagResult | None = None
+) -> None:
     """Attach configured red flags to a viability result."""
-    flood = check_flood_red_flag(result.listing, cfg)
+    if flood is None:
+        flood = check_flood_red_flag(result.listing, cfg)
     result.reasons.extend(flood.reasons)
     for flag in flood.risk_flags:
         if flag not in result.risk_flags:

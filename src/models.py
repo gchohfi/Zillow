@@ -27,6 +27,9 @@ class Listing:
     arv_source: Optional[str] = None
     arv_comps_count: Optional[int] = None
     arv_confidence: Optional[str] = None
+    rent_estimate: Optional[float] = None  # aluguel mensal da casa pronta via AVM
+    rent_source: Optional[str] = None
+    rent_comps_count: Optional[int] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -68,3 +71,11 @@ class ViabilityResult:
     review_reason: str = ""
     growth_score: Optional[float] = None            # 0-10, sinais de crescimento da região
     growth_signals: dict[str, Any] = field(default_factory=dict)  # escolas, comércio, pop, renda
+    flood_zone: str = ""                            # zona FEMA (ex.: AE), vazio se fora/desconhecida
+    flood_high_risk: bool = False                   # SFHA/zona de alto risco
+    # Lente de renda (buy & hold) — informativa, não muda viabilidade spec build
+    rent_monthly: Optional[float] = None            # aluguel estimado (US$/mês)
+    noi_annual: Optional[float] = None              # resultado operacional líquido anual
+    cap_rate: Optional[float] = None                # NOI / investimento total (yield on cost)
+    dscr: Optional[float] = None                    # NOI / serviço da dívida
+    cash_on_cash: Optional[float] = None            # (NOI - dívida) / capital próprio

@@ -137,6 +137,14 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.rent_monthly:
+        rent_line = (
+            f"Se alugar: US$ {r.rent_monthly:,.0f}/mes"
+            + (f" | NOI US$ {r.noi_annual:,.0f}/ano" if r.noi_annual is not None else "")
+            + (f" | cap {r.cap_rate:.1%}" if r.cap_rate is not None else "")
+            + (f" | DSCR {r.dscr:.2f}" if r.dscr is not None else "")
+        )
+        lines.append(rent_line)
     if r.growth_score is not None:
         lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
         summary = r.growth_signals.get("summary", [])

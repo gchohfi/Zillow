@@ -48,6 +48,12 @@ _ROW_FIELDS = (
     "margin",
     "margin_stress",
     "land_to_total_investment",
+    "rent_monthly",
+    "noi_annual",
+    "cap_rate",
+    "dscr",
+    "cash_on_cash",
+    "flood_zone",
     "zoning",
     "url",
     "id",
@@ -57,6 +63,7 @@ _FLOAT_FIELDS = {
     "lat", "lng", "distance_km", "land_price", "arv", "total_cost",
     "profit", "margin", "margin_stress", "land_to_total_investment",
     "growth_score", "market_score",
+    "rent_monthly", "noi_annual", "cap_rate", "dscr", "cash_on_cash",
 }
 
 

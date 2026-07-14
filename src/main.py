@@ -10,7 +10,8 @@ from .arv import enrich_arv
 from .datasource import get_source
 from .geo import within_radius
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
-from .red_flags import apply_red_flags
+from .red_flags import apply_red_flags, mark_flood_zone
+from .rental import apply_rental_analysis, enrich_rent
 from .region_signals import SignalsCache, get_region_signals, prefetch_config_zips
 from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
@@ -134,8 +135,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
                 availability_reasons.append(zoning_note)
                 n_zoning_confirmed += 1
 
+        flood = None
         if not use_mock:
             enrich_arv(listing, cfg)
+            # Zona FEMA antes da avaliação: alto risco encarece o seguro
+            # do carrego dentro do próprio motor de viabilidade.
+            flood = mark_flood_zone(listing, cfg)
 
         try:
             result = evaluate(listing, cfg)
@@ -144,8 +149,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             print(f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: {exc}")
             continue
         result.reasons.extend(availability_reasons)
-        if not use_mock:
-            apply_red_flags(result, cfg)
+        if flood is not None:
+            apply_red_flags(result, cfg, flood=flood)
         classify_review_status(result, cfg)
         if signals_cache is not None and result.review_status != "reprovado":
             signals = get_region_signals(
@@ -154,6 +159,11 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             if signals:
                 result.growth_score = signals.get("score")
                 result.growth_signals = signals
+        # Lente de renda só para o que vira alerta/radar: poupa a cota da
+        # RentCast (1 chamada extra por candidato, não por listagem).
+        if not use_mock and result.review_status != "reprovado":
+            enrich_rent(listing, cfg)
+            apply_rental_analysis(result, cfg)
         evaluated_results.append(result)
 
         store.mark_seen(listing)   # marca como visto somente depois da avaliação

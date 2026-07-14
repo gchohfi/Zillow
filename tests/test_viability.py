@@ -1,5 +1,7 @@
 """Testes da fórmula de viabilidade e do geofiltro."""
 
+import pytest
+
 from src.config import Config
 from src.datasource import MockDataSource
 from src.geo import haversine_km, within_radius
@@ -387,3 +389,26 @@ def test_avm_divergence_from_premise_flags_attention():
     listing.arv_estimate = 310_000
     calm = evaluate(listing, cfg)
     assert not any("diverge" in flag for flag in calm.risk_flags)
+
+
+def test_flood_high_risk_adds_insurance_surcharge_to_carrying():
+    cfg_raw = _cfg().raw
+    cfg_raw["red_flags"] = {"flood": {"insurance_surcharge_annual": 6000}}
+    cfg_raw["costs"]["carrying_months"] = 12
+    cfg = Config(raw=cfg_raw)
+
+    base = Listing(id="dry", price=50000, lat=28.5, lng=-81.4,
+                   zoning="residential")
+    flooded = Listing(id="wet", price=50000, lat=28.5, lng=-81.4,
+                      zoning="residential", raw={"_flood_high_risk": True,
+                                                 "_flood_zone": "AE"})
+
+    result_dry = evaluate(base, cfg)
+    result_wet = evaluate(flooded, cfg)
+
+    assert result_wet.carrying_cost == pytest.approx(result_dry.carrying_cost + 6000)
+    assert result_wet.total_cost == pytest.approx(result_dry.total_cost + 6000)
+    assert result_wet.flood_high_risk is True
+    assert result_wet.flood_zone == "AE"
+    assert any("seguro de enchente" in reason for reason in result_wet.reasons)
+    assert result_dry.flood_high_risk is False

@@ -152,6 +152,24 @@ python -m src.summary            # envia o resumo
 python -m src.summary --dry-run  # só mostra no console
 ```
 
+### Lente de renda (buy & hold)
+
+Para as regiões cuja tese é aluguel (SFR rental/BTR), cada oportunidade que
+vira alerta/radar também sai com a análise de renda: **aluguel estimado** da
+casa pronta (rent AVM da RentCast, mesma chave do ARV), **NOI** anual com as
+premissas de `config.yaml → rental` (vacância, IPTU, seguro, manutenção,
+administração, reservas), **cap rate** sobre o investimento total, **DSCR** e
+**cash-on-cash** com o financiamento configurado. DSCR abaixo do mínimo vira
+atenção no alerta. A camada é informativa — não muda a aprovação do spec
+build — e só consulta a API para candidatos a alerta, poupando cota.
+
+### Seguro sensível a risco climático
+
+Terreno em zona FEMA de alto risco (SFHA/AE/VE...) recebe um adicional anual
+de seguro (`red_flags.flood.insurance_surcharge_annual`), aplicado pró-rata no
+carrego do spec build e no seguro da lente de renda — seguro é variável
+central de underwriting na Flórida, não detalhe.
+
 ### Filtro de tamanho mínimo de lote
 
 `config.yaml → rules.min_lot_size_sqft` descarta terrenos menores que o valor (em

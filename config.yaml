@@ -168,6 +168,38 @@ red_flags:
     fail_open: true          # se FEMA falhar, não perde oportunidade; só marca atenção
     block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
     high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
+    # Zona de alto risco = seguro mais caro. O valor anual extra entra no
+    # carrego do spec build (pró-rata pelos meses de obra) e no seguro da
+    # lente de renda. CALIBRE com cotações reais; 0 desliga.
+    insurance_surcharge_annual: 5000
+
+# ---- Lente de renda (buy & hold) ----
+# Para regiões cuja tese é SFR rental/BTR: estima o aluguel da casa pronta
+# (rent AVM da RentCast, mesma chave do ARV) e calcula NOI, cap rate, DSCR e
+# cash-on-cash. Informativa: não muda a aprovação do spec build. Só consulta
+# a API para oportunidades que viram alerta/radar (poupa cota).
+rental:
+  enabled: true
+  property_type: Single Family
+  path: /avm/rent/long-term
+  max_radius_miles: 2
+  days_old: 180
+  comp_count: 10
+  min_comps: 3
+  timeout_seconds: 20
+  # Premissas operacionais anuais — AJUSTE COM SEUS NÚMEROS:
+  vacancy_pct: 0.08            # vacância + inadimplência (% da receita bruta)
+  property_tax_pct: 0.011      # IPTU efetivo (% do valor do imóvel/ARV ao ano)
+  insurance_annual: 2800       # seguro base (USD/ano; zona FEMA soma o surcharge)
+  hoa_monthly: 0               # HOA/condomínio (USD/mês)
+  maintenance_pct: 0.08        # manutenção (% da receita efetiva)
+  management_pct: 0.08         # administração (% da receita efetiva)
+  reserves_pct: 0.05           # reserva de reposição/capex (% da receita efetiva)
+  min_dscr_warn: 1.2           # DSCR abaixo disso vira atenção no alerta
+  financing:                   # premissas de financiamento para DSCR/cash-on-cash
+    down_payment_pct: 0.25
+    interest_rate: 0.070
+    amort_years: 30
 
 # ---- Confirmação de zoneamento/uso do solo via GIS público ----
 # Quando a listagem vem sem zoneamento, consulta camadas ArcGIS públicas por
