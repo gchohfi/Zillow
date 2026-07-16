@@ -122,6 +122,11 @@ def validate_config(cfg: "Config") -> list[str]:
         except (TypeError, ValueError):
             pass
 
+    development = raw.get("development")
+    if isinstance(development, dict) and development.get("enabled", False):
+        _number("development", "min_lot_size_sqft", 43_560)
+        _number("development", "max_price_per_acre", 0, required=False)
+
     costs = raw.get("costs")
     if isinstance(costs, dict):
         for field in _PCT_FIELDS:

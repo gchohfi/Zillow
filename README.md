@@ -387,6 +387,16 @@ recuperada quando também passa pelo Radar de valorização: região forte, scor
 do imóvel, proporção do terreno e diferença de negociação dentro dos limites.
 Isso reduz ruído e não transforma o imóvel em viável.
 
+### Radar de desenvolvimento
+
+Terrenos a partir de `development.min_lot_size_sqft` (hoje 87.120 sqft, ou
+2 acres) seguem uma trilha separada da construção de uma única casa. Eles
+aparecem como `radar_desenvolvimento` com área e preço por acre, mesmo quando a
+fórmula de spec build reprova. O objetivo é não perder áreas para loteamento,
+multifamily, BTR, townhomes ou land banking. Zoneamentos explicitamente ligados
+a conservação ou wetland continuam bloqueados, e o Radar nunca equivale a uma
+aprovação automática.
+
 Além disso:
 
 - **Preparação do lote e impact fees** entram na conta por segmento

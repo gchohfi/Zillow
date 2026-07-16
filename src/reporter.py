@@ -37,6 +37,9 @@ _COLUMNS = [
     "lng",
     "distance_km",
     "land_price",
+    "lot_size_sqft",
+    "lot_size_acres",
+    "price_per_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -86,6 +89,9 @@ _EVALUATION_COLUMNS = [
     "lng",
     "distance_km",
     "land_price",
+    "lot_size_sqft",
+    "lot_size_acres",
+    "price_per_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -171,6 +177,16 @@ def _base_row(r: ViabilityResult, found_at: str) -> dict[str, object]:
             round(listing.distance_km, 1) if listing.distance_km is not None else ""
         ),
         "land_price": round(r.land_cost),
+        "lot_size_sqft": (
+            "" if listing.lot_size_sqft is None else round(listing.lot_size_sqft)
+        ),
+        "lot_size_acres": (
+            "" if listing.lot_size_sqft is None else f"{listing.lot_size_sqft / 43_560:.2f}"
+        ),
+        "price_per_acre": (
+            "" if not listing.lot_size_sqft
+            else round(r.land_cost / (listing.lot_size_sqft / 43_560))
+        ),
         "arv": round(r.arv),
         "arv_source": r.arv_source,
         "arv_comps_count": r.arv_comps_count or "",

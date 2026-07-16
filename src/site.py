@@ -41,6 +41,9 @@ _ROW_FIELDS = (
     "lng",
     "distance_km",
     "land_price",
+    "lot_size_sqft",
+    "lot_size_acres",
+    "price_per_acre",
     "arv",
     "arv_source",
     "total_cost",
@@ -54,7 +57,8 @@ _ROW_FIELDS = (
 )
 
 _FLOAT_FIELDS = {
-    "lat", "lng", "distance_km", "land_price", "arv", "total_cost",
+    "lat", "lng", "distance_km", "land_price", "lot_size_sqft",
+    "lot_size_acres", "price_per_acre", "arv", "total_cost",
     "profit", "margin", "margin_stress", "land_to_total_investment",
     "growth_score", "market_score",
 }
@@ -796,6 +800,14 @@ function oppCard(r) {
     : '<div class="stat"><div class="l">região \\u2191</div><div class="v muted">n/d</div></div>';
   const isStarred = starred.has(r.id);
   const isDismissed = dismissed.has(r.id);
+  const isDevelopment = r.review_status === "radar_desenvolvimento";
+  const thesisStats = isDevelopment
+    ? '<div class="stat"><div class="l">área</div><div class="v">' +
+        (r.lot_size_acres == null ? "n/d" : Number(r.lot_size_acres).toFixed(1) + " acres") + "</div></div>" +
+      '<div class="stat"><div class="l">preço/acre</div><div class="v">' + fmtMoney(r.price_per_acre) + "</div></div>"
+    : '<div class="stat"><div class="l">lucro est.</div><div class="v">' + fmtMoney(r.profit) + "</div></div>" +
+      '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) +
+        (r.margin_stress != null ? '</div><div class="small muted">pess. ' + fmtPct(r.margin_stress) + "</div>" : "</div>") + "</div>";
   return '<article class="opp ' + r.kind + (isStarred ? " starred" : "") + '">' +
     '<div class="opp-head">' + badge(r) +
       (isNew(r) ? '<span class="tag-new">NOVA</span>' : "") +
@@ -814,9 +826,7 @@ function oppCard(r) {
       (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
     '<div class="opp-stats">' +
       '<div class="stat"><div class="l">terreno</div><div class="v">' + fmtMoney(r.land_price) + "</div></div>" +
-      '<div class="stat"><div class="l">lucro est.</div><div class="v">' + fmtMoney(r.profit) + "</div></div>" +
-      '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) +
-        (r.margin_stress != null ? '</div><div class="small muted">pess. ' + fmtPct(r.margin_stress) + "</div>" : "</div>") + "</div>" +
+      thesisStats +
       growth +
     "</div>" +
     alert +
@@ -912,6 +922,8 @@ const COLS = [
       (r.market_region ? '<div class="small muted">' + esc(r.market_region) + "</div>" : "") },
   { h: "Segmento", c: r => esc(r.tier) || '<span class="muted">n/d</span>' },
   { h: "Terreno", c: r => fmtMoney(r.land_price), num: true },
+  { h: "Área", c: r => r.lot_size_acres == null ? '<span class="muted">n/d</span>' : Number(r.lot_size_acres).toFixed(2) + " ac", num: true },
+  { h: "Preço/acre", c: r => fmtMoney(r.price_per_acre), num: true },
   { h: "ARV", c: r => fmtMoney(r.arv) +
       (r.arv_source === "rentcast_avm" ? '<div class="small muted">comps</div>' : '<div class="small muted">premissa</div>'), num: true },
   { h: "Lucro", c: r => fmtMoney(r.profit), num: true },
