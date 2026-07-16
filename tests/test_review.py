@@ -29,6 +29,12 @@ def _cfg() -> Config:
             "include_manual_review_segments": True,
             "include_high_flood_risk": True,
         },
+        "development": {
+            "enabled": True,
+            "min_lot_size_sqft": 87_120,
+            "max_price_per_acre": 0,
+            "blocked_zoning_hints": ["conservation", "wetland"],
+        },
         "market_strategy": {"default_priority": "fora", "default_score": 0, "zip_groups": []},
         "storage": {"db_path": ":memory:"},
     })
@@ -117,3 +123,40 @@ def test_commercial_zoning_stays_rejected():
     assert not result.is_viable
     assert result.review_status == "reprovado"
     assert "bloqueio automatico" in result.review_reason
+
+
+def test_large_lot_becomes_development_radar_even_if_spec_math_fails():
+    cfg = _cfg()
+    lot = Listing(
+        id="development-site",
+        price=900_000,
+        lat=28.41,
+        lng=-81.50,
+        lot_size_sqft=217_800,
+        zoning="agricultural",
+    )
+
+    result = evaluate(lot, cfg)
+    assert not result.is_viable
+    classify_review_status(result, cfg)
+
+    assert result.review_status == "radar_desenvolvimento"
+    assert "5.0 acres" in result.review_reason
+    assert "180,000/acre" in result.review_reason
+
+
+def test_large_wetland_lot_stays_rejected():
+    cfg = _cfg()
+    lot = Listing(
+        id="wetland-site",
+        price=100_000,
+        lat=28.41,
+        lng=-81.50,
+        lot_size_sqft=217_800,
+        zoning="wetland conservation",
+    )
+
+    result = evaluate(lot, cfg)
+    classify_review_status(result, cfg)
+
+    assert result.review_status == "reprovado"

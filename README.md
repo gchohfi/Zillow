@@ -379,6 +379,16 @@ Terreno/investimento total = Preço do terreno / Custo total estimado
 - Zoneamento deve permitir residencial; se `require_known_zoning` estiver ligado,
   zoneamento ausente também bloqueia alerta automático
 
+### Radar de desenvolvimento
+
+Terrenos a partir de `development.min_lot_size_sqft` (hoje 87.120 sqft, ou
+2 acres) seguem uma trilha separada da construção de uma única casa. Eles
+aparecem como `radar_desenvolvimento` com área e preço por acre, mesmo quando a
+fórmula de spec build reprova. O objetivo é não perder áreas para loteamento,
+multifamily, BTR, townhomes ou land banking. Zoneamentos explicitamente ligados
+a conservação ou wetland continuam bloqueados, e o Radar nunca equivale a uma
+aprovação automática.
+
 Além disso:
 
 - **Preparação do lote e impact fees** entram na conta por segmento
