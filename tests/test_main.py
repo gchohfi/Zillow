@@ -5,6 +5,15 @@ from src.main import _format_run_summary, run
 from src.models import Listing
 
 
+def _zero_site_costs(cfg: Config) -> None:
+    """Isola os testes de orquestração da calibragem de custos de lote."""
+    cfg.raw["costs"]["site_prep_cost"] = 0
+    cfg.raw["costs"]["impact_fees"] = 0
+    for tier in cfg.raw.get("tiers", []):
+        tier.get("costs", {}).pop("site_prep_cost", None)
+        tier.get("costs", {}).pop("impact_fees", None)
+
+
 def test_failed_evaluation_is_not_marked_seen(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
@@ -95,6 +104,31 @@ def test_source_failure_sends_status_message(monkeypatch, tmp_path):
     assert "timeout na RentCast" in messages[0][1]
 
 
+def test_source_failure_closes_seen_store(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    closed = []
+
+    class Source:
+        errors = ["timeout na RentCast"]
+
+        def fetch_new_land_listings(self, _cfg):
+            return []
+
+    class Store:
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr("src.main.SeenStore", lambda _db_path: Store())
+    monkeypatch.setattr("src.main.send_message", lambda subject, body, dry_run=False: None)
+
+    run(use_mock=False, dry_run=True)
+
+    assert closed == [True]
+
+
 def test_run_summary_reports_empty_round():
     summary = _format_run_summary(
         source_name="RentCastSource",
@@ -119,6 +153,7 @@ def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
     cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
     cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    _zero_site_costs(cfg)
     calls = []
 
     class Source:
@@ -151,6 +186,7 @@ def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_pat
     cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
     cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
     cfg.raw["rules"]["require_known_zoning"] = True
+    _zero_site_costs(cfg)
     cfg.raw["radar"] = {
         "enabled": True,
         "send_whatsapp": True,

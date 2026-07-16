@@ -26,6 +26,75 @@ costs:
   carrying_cost_annual_pct: 0.09  # juros + IPTU + seguro anualizados (% sobre terreno+obra)
   carrying_months: 12          # prazo estimado do projeto para custo de carrego
   selling_cost_pct: 0.07       # comissão de corretor + closing (% sobre o ARV)
+  # AJUSTE COM SEUS NÚMEROS (estimativas de mercado de Central FL; 0 desliga):
+  site_prep_cost: 15000        # preparação do lote: limpeza, aterro, conexões, driveway (USD)
+  impact_fees: 20000           # taxas de impacto do county por unidade (USD)
+
+# ---- Custos por county (sobrepõem o segmento quando o ZIP é conhecido) ----
+# As tabelas de impact fees variam muito entre os counties da região.
+# CALIBRE com os valores reais que a empresa paga; ZIPs fora da lista usam
+# os valores do segmento acima.
+county_costs:
+  counties:
+    orange:   { impact_fees: 25000 }
+    osceola:  { impact_fees: 30000 }   # historicamente as mais altas da região
+    seminole: { impact_fees: 15000 }
+    lake:     { impact_fees: 15000 }
+    polk:     { impact_fees: 12000 }
+    volusia:  { impact_fees: 12000 }
+  zip_to_county:
+    # Orange
+    "32703": orange
+    "32712": orange
+    "32789": orange
+    "32792": orange
+    "32801": orange
+    "32805": orange
+    "32808": orange
+    "32810": orange
+    "32819": orange
+    "32822": orange
+    "32824": orange
+    "32827": orange
+    "32832": orange
+    "32836": orange
+    "34761": orange
+    "34786": orange
+    "34787": orange
+    # Seminole
+    "32771": seminole
+    # Osceola
+    "33896": osceola
+    "34741": osceola
+    "34744": osceola
+    "34746": osceola
+    "34747": osceola
+    "34758": osceola
+    "34769": osceola
+    "34771": osceola
+    "34772": osceola
+    "34773": osceola
+    # Lake
+    "34711": lake
+    "34714": lake
+    "34715": lake
+    "34748": lake
+    # Polk
+    "33801": polk
+    "33880": polk
+    "33897": polk
+    # Volusia
+    "32114": volusia
+    "32713": volusia
+    "32720": volusia
+    "32724": volusia
+
+# ---- Cenário pessimista (análise de sensibilidade) ----
+# Cada oportunidade também mostra lucro/margem com ARV menor e obra mais cara.
+# Margem negativa no pessimista vira atenção no alerta (não bloqueia).
+stress:
+  arv_drop_pct: 0.10           # ARV 10% menor
+  construction_rise_pct: 0.10  # obra 10% mais cara
 
 # ---- ARV por comps reais (RentCast AVM) ----
 # Para terreno, o ARV deve estimar a casa pronta hipotética, não o lote.
@@ -38,7 +107,9 @@ arv:
   max_radius_miles: 2
   days_old: 180
   comp_count: 10
-  min_comps: 3
+  min_comps: 5                 # menos que isso, volta para a premissa fixa
+  cap_confidences: [low]       # com confiança baixa, o ARV fica limitado à premissa
+  divergence_warn_pct: 0.15    # comps divergindo >15% da premissa vira atenção
   timeout_seconds: 20
 
 # ---- Regras de corte (o que é "viável") ----
@@ -82,9 +153,11 @@ availability:
   require_status_active: true
   allowed_statuses: [Active]
   reject_removed: true
-  max_last_seen_hours: 36
-  max_listed_age_days: 3
-  require_mls_number: true
+  max_last_seen_hours: 48
+  # Terrenos têm ciclo de venda mais longo; anúncios ativos antigos podem ter
+  # maior espaço de negociação. Status/lastSeen continuam obrigatórios.
+  max_listed_age_days: 45
+  require_mls_number: false   # sem MLS vira atenção no alerta, não descarte silencioso
 
 # ---- Red flags de due diligence antes do alerta ----
 red_flags:
@@ -98,6 +171,51 @@ red_flags:
     block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
     high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
 
+# ---- Confirmação de zoneamento/uso do solo via GIS público ----
+# Quando a listagem vem sem zoneamento, consulta camadas ArcGIS públicas por
+# ponto e preenche o zoneamento antes da avaliação: residencial confirmado
+# vira oportunidade; comercial/industrial confirmado é reprovado; falha de
+# GIS mantém o comportamento atual (Radar). As fontes são tentadas em ordem
+# e novas (ex.: GIS de county) podem ser adicionadas aqui sem mexer no código.
+zoning_lookup:
+  enabled: true
+  cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
+  cache_days: 90
+  failure_retry_hours: 6        # GIS indisponível: tenta de novo após N horas
+  timeout_seconds: 45           # cadastro estadual é grande; consultas frias demoram
+  radius_m: 30                  # raio (m): absorve geocode que cai na rua em frente ao lote
+  sources:
+    - name: regrid
+      type: regrid
+      # Fonte preferencial: Regrid Parcels API (zoneamento + uso do solo +
+      # dono, 100% de preenchimento em Orange County). Liga automaticamente
+      # quando o secret REGRID_API_KEY existir; sem a chave, é pulada.
+      # ATENÇÃO (verificado em 2026-07-06): o token TRIAL não cobre Orlando —
+      # a API v1 responde "This area is not included in API trials" e a v2
+      # devolve FeatureCollections vazias. Requer plano pago (regrid.com/api);
+      # com um token pago no secret, liga sozinho sem mexer em nada.
+      query_url: https://app.regrid.com/api/v2/parcels/point
+      fields: [zoning_description, zoning, usedesc, usecode]
+
+    - name: fl_parcelas_estaduais
+      # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
+      # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
+      query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
+      fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
+
+    - name: fl_saude_parcelas_county
+      # Plano B: parcelas por county (Fla. Dept. of Health) — camadas bem
+      # menores e mais rápidas. O índice da camada é a posição alfabética do
+      # county entre os 67 da Flórida (Orange=47, verificado).
+      query_url_by_county:
+        orange:   https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/47/query
+        osceola:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/48/query
+        lake:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/33/query
+        seminole: https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/58/query
+        polk:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/52/query
+        volusia:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/63/query
+      fields: [DOR_UC, PA_UC]
+
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
 # números passam e o bloqueio é due diligence (ex.: zoneamento desconhecido).
@@ -105,9 +223,76 @@ radar:
   enabled: true
   send_whatsapp: true
   max_candidates: 10
+  # Desligado: margem curta, sozinha, gerava ruído. Near misses agora entram
+  # apenas pelo Radar de valorização abaixo (região + imóvel + negociação).
+  include_financial_near_misses: false
+  min_margin: 0.10
   include_unknown_zoning: true
   include_manual_review_segments: true
   include_high_flood_risk: true
+  include_appreciation_candidates: true
+
+# ---- Valorização regional + potencial específico do lote ----
+# O score NÃO aprova sozinho uma compra. Ele cria Radar para near misses que
+# ainda exigem negociação e due diligence. Premissas de mercado atualizadas:
+# FHFA 2025Q4 (Orlando: -0,89% 1 ano, +48,95% 5 anos) e projeções oficiais
+# Florida EDR/BEBR 2025->2035 por county.
+appreciation:
+  enabled: true
+  minimum_score: 7.0
+  minimum_regional_score: 7.0
+  minimum_property_score: 5.0
+  minimum_margin: 0.10
+  max_margin_shortfall: 0.08
+  max_land_ratio_overage: 0.05
+  max_ask_above_supported_pct: 0.65
+  max_negotiation_gap_usd: 25000
+  regional_weight: 0.60
+  property_weight: 0.40
+  regional_weights:
+    market_thesis: 0.40
+    county_projection: 0.30
+    local_signals: 0.15
+    metro_cycle: 0.15
+  property_weights:
+    margin: 0.25
+    negotiation: 0.30
+    stress: 0.15
+    arv_confidence: 0.20
+    lot_fit: 0.10
+  metro_hpi:
+    as_of: "2025Q4"
+    one_year_pct: -0.0089
+    five_year_pct: 0.4895
+  county_growth_full_score_pct: 0.25
+  county_population_growth_2025_2035:
+    orange: 0.1340
+    osceola: 0.2919
+    seminole: 0.0780
+    lake: 0.2148
+    polk: 0.1853
+    volusia: 0.1094
+
+# ---- Sinais de crescimento da região (dashboard + WhatsApp) ----
+# Fontes gratuitas: OpenStreetMap (escolas/comércio próximos) e US Census ACS
+# (crescimento de população e renda por ZIP em 5 anos). Falha de API nunca
+# bloqueia alerta; os sinais ficam em cache por ZIP porque mudam devagar.
+region_signals:
+  enabled: true
+  cache_db: region_signals.db
+  cache_days: 30               # revalida os sinais de cada ZIP a cada N dias
+  radius_km: 3                 # raio para contar escolas/comércio
+  census_latest_year: 2023     # ACS 5 anos mais recente
+  census_base_year: 2018       # base de comparação (5 anos antes)
+  timeout_seconds: 25
+  prefetch_thesis_zips: true   # pré-carrega os ZIPs das regiões-alvo (1x, fica em cache)
+  prefetch_pause_seconds: 1.1  # pausa entre geocodificações (política do Nominatim)
+  fetch_pause_seconds: 1.0     # pausa entre ZIPs (limites das APIs públicas)
+  failure_retry_hours: 6       # ZIP com busca falha volta a ser tentado após N horas
+  census_state_fips: "12"      # Flórida; exigido pelos vintages ACS até 2019
+  overpass_urls:               # espelhos tentados em ordem
+    - https://overpass-api.de/api/interpreter
+    - https://overpass.kumi.systems/api/interpreter
 
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
@@ -200,8 +385,11 @@ tiers:
       bathrooms: 2
       construction_cost_per_sqft: 120
       resale_price_per_sqft: 225   # ARV crítico aproximado: US$ 315.000
+    costs:
+      site_prep_cost: 25000    # lote barato costuma ser rural: poço/fossa mais prováveis
+      impact_fees: 15000       # counties rurais tendem a cobrar menos
     rules:
-      max_land_price: 50000
+      max_land_price: 0       # removido: teto era redundante com a própria faixa do segmento
       target_margin: 0.18
 
   - name: medio_padrao
@@ -215,6 +403,7 @@ tiers:
       resale_price_per_sqft: 330
     rules:
       target_margin: 0.18
+      min_lot_size_sqft: 7000  # casa de 2200 sqft + recuos não cabe em lote menor
 
   - name: alto_padrao
     label: "Alto padrão"
@@ -227,6 +416,7 @@ tiers:
       resale_price_per_sqft: 520
     costs:
       selling_cost_pct: 0.08
+      site_prep_cost: 30000    # lote premium: paisagismo/preparação mais caros
     rules:
       target_margin: 0.22
       min_lot_size_sqft: 12000
@@ -240,6 +430,11 @@ storage:
 output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
   evaluations_csv_path: evaluations.csv  # toda listagem nova avaliada, viável ou não
+
+# ---- Dashboard estático publicável (GitHub Pages) ----
+site:
+  dir: site                    # diretório onde o index.html é gerado
+  period_days: 30              # janela de avaliações exibida no dashboard
 
 # ---- Notificações operacionais ----
 notifications:
@@ -264,7 +459,7 @@ datasource:
     property_type: Land
     status: Active
     limit: 100
-    max_pages: 1
+    max_pages: 3               # até 300 listagens por rodada (era 100)
     timeout_seconds: 60
     retries: 2
     retry_sleep_seconds: 3
@@ -272,7 +467,7 @@ datasource:
     # Parâmetros opcionais aceitos pela RentCast. Para capturar oportunidades
     # recentes sem gastar chamadas demais, comece com poucos dias e ajuste.
     params:
-      daysOld: "0-3"
+      daysOld: "0-7"
 
     # Para a primeira peneira usamos ~50 milhas / 80 km de Orlando.
     # Se voltar para 180 km, reative pontos sobrepostos ao redor da região.

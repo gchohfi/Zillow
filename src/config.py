@@ -60,3 +60,109 @@ def env(key: str, default: str | None = None) -> str | None:
     """Lê uma variável de ambiente (vinda do .env ou do ambiente)."""
     value = os.getenv(key, default)
     return value if value else default
+
+
+# Campos percentuais que precisam estar entre 0 e 1 (frações, não %).
+_PCT_FIELDS = (
+    "soft_cost_pct",
+    "purchase_closing_pct",
+    "contingency_pct",
+    "carrying_cost_annual_pct",
+    "carrying_cost_pct",
+    "selling_cost_pct",
+)
+
+
+def validate_config(cfg: "Config") -> list[str]:
+    """Valida o config.yaml e retorna a lista de problemas (vazia = ok).
+
+    Falha rápida com mensagem clara é melhor que um erro estranho no meio
+    da rodada — especialmente porque os parâmetros são editados à mão.
+    """
+    errors: list[str] = []
+    raw = cfg.raw or {}
+
+    def _number(section: str, key: str, minimum: float | None = None,
+                maximum: float | None = None, required: bool = True) -> None:
+        data = raw.get(section)
+        if not isinstance(data, dict):
+            if required:
+                errors.append(f"seção '{section}' ausente ou inválida")
+            return
+        value = data.get(key)
+        if value is None:
+            if required:
+                errors.append(f"'{section}.{key}' ausente")
+            return
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            errors.append(f"'{section}.{key}' deve ser numérico (veio {value!r})")
+            return
+        if minimum is not None and number < minimum:
+            errors.append(f"'{section}.{key}' deve ser ≥ {minimum} (veio {number})")
+        if maximum is not None and number > maximum:
+            errors.append(f"'{section}.{key}' deve ser ≤ {maximum} (veio {number})")
+
+    _number("search", "center_lat", -90, 90)
+    _number("search", "center_lng", -180, 180)
+    _number("search", "radius_km", 1)
+    _number("build", "living_area_sqft", 1)
+    _number("build", "construction_cost_per_sqft", 1)
+    _number("build", "resale_price_per_sqft", 1)
+    _number("rules", "target_margin", 0, 1)
+    _number("rules", "max_land_to_total_investment_pct", 0, 1)
+
+    radar = raw.get("radar")
+    if isinstance(radar, dict) and radar.get("include_financial_near_misses", False):
+        _number("radar", "min_margin", 0, 1)
+        try:
+            if float(radar.get("min_margin")) >= float(raw.get("rules", {}).get("target_margin")):
+                errors.append("'radar.min_margin' deve ser menor que 'rules.target_margin'")
+        except (TypeError, ValueError):
+            pass
+
+    costs = raw.get("costs")
+    if isinstance(costs, dict):
+        for field in _PCT_FIELDS:
+            if field in costs:
+                _number("costs", field, 0, 1, required=False)
+    else:
+        errors.append("seção 'costs' ausente ou inválida")
+
+    for index, tier in enumerate(raw.get("tiers") or []):
+        if not isinstance(tier, dict):
+            errors.append(f"tiers[{index}] deve ser um mapa")
+            continue
+        tier_costs = tier.get("costs") or {}
+        for field in _PCT_FIELDS:
+            if field in tier_costs:
+                try:
+                    number = float(tier_costs[field])
+                except (TypeError, ValueError):
+                    errors.append(f"tiers[{index}].costs.{field} deve ser numérico")
+                    continue
+                if not 0 <= number <= 1:
+                    errors.append(
+                        f"tiers[{index}].costs.{field} deve estar entre 0 e 1 (veio {number})"
+                    )
+
+    if isinstance(raw.get("appreciation"), dict):
+        for field in (
+            "minimum_margin",
+            "max_margin_shortfall",
+            "max_land_ratio_overage",
+            "max_ask_above_supported_pct",
+            "regional_weight",
+            "property_weight",
+            "county_growth_full_score_pct",
+        ):
+            if field in raw["appreciation"]:
+                _number("appreciation", field, 0, 1, required=False)
+        for field in ("minimum_score", "minimum_regional_score", "minimum_property_score"):
+            if field in raw["appreciation"]:
+                _number("appreciation", field, 0, 10, required=False)
+        if "max_negotiation_gap_usd" in raw["appreciation"]:
+            _number("appreciation", "max_negotiation_gap_usd", 0, required=False)
+
+    return errors

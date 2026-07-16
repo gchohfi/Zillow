@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from .config import Config
@@ -37,7 +38,10 @@ def _has_high_flood_risk(result: ViabilityResult, cfg: Config) -> bool:
         if "fema flood zone" not in plain:
             continue
         upper = flag.upper()
-        if "SFHA" in upper or any(f" {zone}" in upper for zone in high_risk_zones):
+        if "SFHA" in upper:
+            return True
+        zone_match = re.search(r"FEMA FLOOD ZONE\s+([A-Z0-9]+)", upper)
+        if zone_match and zone_match.group(1) in high_risk_zones:
             return True
     return False
 
@@ -48,6 +52,96 @@ def _passes_numeric_filters(result: ViabilityResult, cfg: Config) -> bool:
 
     target_margin = float(rules["target_margin"])
     if result.margin < target_margin:
+        return False
+
+    max_land = float(rules["max_land_to_total_investment_pct"])
+    if result.land_to_total_investment > max_land:
+        return False
+
+    max_land_price = float(rules.get("max_land_price") or 0)
+    if max_land_price > 0 and result.land_cost > max_land_price:
+        return False
+
+    min_lot = float(rules.get("min_lot_size_sqft") or 0)
+    if (
+        min_lot > 0
+        and result.listing.lot_size_sqft is not None
+        and result.listing.lot_size_sqft < min_lot
+    ):
+        return False
+
+    return True
+
+
+def _passes_appreciation_radar(result: ViabilityResult, cfg: Config) -> bool:
+    """Aceita somente near misses financeiros com tese regional e preço negociável."""
+    section = cfg.raw.get("appreciation", {})
+    radar_cfg = cfg.raw.get("radar", {})
+    if not section.get("enabled", False) or not radar_cfg.get(
+        "include_appreciation_candidates", False
+    ):
+        return False
+
+    if (result.appreciation_score or 0) < float(section.get("minimum_score", 7.0)):
+        return False
+    if (result.regional_appreciation_score or 0) < float(
+        section.get("minimum_regional_score", 7.0)
+    ):
+        return False
+    if (result.property_potential_score or 0) < float(
+        section.get("minimum_property_score", 5.5)
+    ):
+        return False
+
+    _, _, _, rules = resolve_parameters(result.listing, cfg)
+    target_margin = float(rules["target_margin"])
+    margin_floor = max(
+        float(section.get("minimum_margin", 0.10)),
+        target_margin - float(section.get("max_margin_shortfall", 0.08)),
+    )
+    if result.margin < margin_floor:
+        return False
+
+    max_land = float(rules["max_land_to_total_investment_pct"])
+    if result.land_to_total_investment > max_land + float(
+        section.get("max_land_ratio_overage", 0.05)
+    ):
+        return False
+
+    premium = result.asking_premium_to_supported
+    if premium is None or premium > float(section.get("max_ask_above_supported_pct", 0.12)):
+        return False
+    price_gap = max(0.0, result.land_cost - result.max_supported_land_price)
+    if price_gap > float(section.get("max_negotiation_gap_usd", 25_000)):
+        return False
+
+    if _has_high_flood_risk(result, cfg) and not radar_cfg.get("include_high_flood_risk", True):
+        return False
+
+    # Nunca deixa valorização encobrir uso comercial/industrial, flood bloqueado
+    # ou outro impedimento físico/jurídico. Só tolera os bloqueios abaixo.
+    allowed = (
+        "margem",
+        "investimento total",
+        "zoneamento desconhecido",
+        "lote",
+    )
+    return not any(
+        not any(term in _plain(reason) for term in allowed)
+        for reason in _fatal_reasons(result)
+    )
+
+
+def _is_financial_near_miss(result: ViabilityResult, cfg: Config) -> bool:
+    """Aceita no Radar somente a margem curta; os demais cortes seguem rígidos."""
+    radar_cfg = cfg.raw.get("radar", {})
+    if not radar_cfg.get("include_financial_near_misses", False):
+        return False
+
+    _, _, _, rules = resolve_parameters(result.listing, cfg)
+    target_margin = float(rules["target_margin"])
+    min_margin = float(radar_cfg.get("min_margin", target_margin))
+    if not min_margin <= result.margin < target_margin:
         return False
 
     max_land = float(rules["max_land_to_total_investment_pct"])
@@ -82,7 +176,15 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
         result.review_reason = "fora dos filtros atuais"
         return
 
-    if not _passes_numeric_filters(result, cfg):
+    if _passes_appreciation_radar(result, cfg):
+        result.review_status = "radar_valorizacao"
+        result.review_reason = (
+            "regiao forte; conta proxima do alvo e candidata a negociacao"
+        )
+        return
+
+    financial_near_miss = _is_financial_near_miss(result, cfg)
+    if not _passes_numeric_filters(result, cfg) and not financial_near_miss:
         result.review_status = "reprovado"
         result.review_reason = "nao passou nos filtros financeiros"
         return
@@ -102,6 +204,8 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
     allowed_fatal = []
     if radar_cfg.get("include_unknown_zoning", True):
         allowed_fatal.append("zoneamento desconhecido")
+    if financial_near_miss:
+        allowed_fatal.append("margem")
 
     disallowed_fatal = [
         reason for reason in fatal_reasons
@@ -110,6 +214,16 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
     if disallowed_fatal:
         result.review_status = "reprovado"
         result.review_reason = "tem bloqueio automatico nao permitido no radar"
+        return
+
+    if financial_near_miss:
+        _, _, _, rules = resolve_parameters(result.listing, cfg)
+        zoning_note = "; zoneamento pendente" if unknown_zoning else ""
+        result.review_status = "radar_margem_limite"
+        result.review_reason = (
+            f"margem {result.margin:.1%} abaixo do alvo "
+            f"{float(rules['target_margin']):.0%}; revisar{zoning_note}"
+        )
         return
 
     if unknown_zoning and radar_cfg.get("include_unknown_zoning", True):

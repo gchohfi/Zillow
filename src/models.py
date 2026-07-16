@@ -50,6 +50,10 @@ class ViabilityResult:
     land_to_total_investment: float
     is_viable: bool
     tier: str = ""                                      # segmento: baixo/médio/alto padrão
+    site_prep_cost: float = 0.0    # preparação do lote (limpeza, aterro, conexões)
+    impact_fees: float = 0.0       # taxas de impacto do county
+    profit_stress: Optional[float] = None   # lucro no cenário pessimista
+    margin_stress: Optional[float] = None   # margem no cenário pessimista
     reasons: list[str] = field(default_factory=list)   # por que passou / reprovou
     arv_source: str = "config"
     arv_comps_count: Optional[int] = None
@@ -60,5 +64,15 @@ class ViabilityResult:
     market_score: float = 0
     market_strategies: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
-    review_status: str = ""       # viavel, radar_zoneamento_pendente, radar_analise_manual, reprovado
+    review_status: str = ""       # viavel, radares de diligência/valorização, reprovado
     review_reason: str = ""
+    growth_score: Optional[float] = None            # 0-10, sinais de crescimento da região
+    growth_signals: dict[str, Any] = field(default_factory=dict)  # escolas, comércio, pop, renda
+    max_supported_land_price: float = 0.0            # maior pedida que mantém a margem-alvo
+    asking_premium_to_supported: Optional[float] = None  # pedida acima/abaixo do preço-alvo
+    regional_appreciation_score: Optional[float] = None  # 0-10, tese + projeções + sinais
+    property_potential_score: Optional[float] = None     # 0-10, negociação + robustez da conta
+    appreciation_score: Optional[float] = None           # score combinado 0-10
+    appreciation_label: str = ""
+    appreciation_factors: list[str] = field(default_factory=list)
+    county_projection_growth_pct: Optional[float] = None

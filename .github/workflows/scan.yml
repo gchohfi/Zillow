@@ -17,17 +17,23 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # branch 'data' guarda a memória do scanner entre rodadas
+  pages: write
+  id-token: write
 
 jobs:
   scan:
     name: Scan land listings
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     env:
       PYTHONUNBUFFERED: "1"
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
+      REGRID_API_KEY: ${{ secrets.REGRID_API_KEY }}
       RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
       RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
       ZAPI_INSTANCE_ID: ${{ secrets.ZAPI_INSTANCE_ID }}
@@ -62,11 +68,29 @@ jobs:
           path: |
             seen_listings.db
             seen_listings.db-*
+            region_signals.db
+            region_signals.db-*
             opportunities.csv
             evaluations.csv
           key: orlando-land-state-${{ github.run_id }}
           restore-keys: |
             orlando-land-state-
+
+      - name: Restore state from data branch (fallback)
+        shell: bash
+        run: |
+          # O cache do Actions pode ser despejado (~7 dias sem uso). O branch
+          # 'data' é a cópia permanente: se o cache falhou, restaura de lá e
+          # evita uma enxurrada de alertas repetidos.
+          if [ ! -f seen_listings.db ] && git fetch origin data 2>/dev/null; then
+            git checkout origin/data -- state/ 2>/dev/null || true
+            if [ -d state ]; then
+              cp -n state/* . 2>/dev/null || true
+              git restore --staged state 2>/dev/null || true
+              rm -rf state
+              echo "estado restaurado do branch data"
+            fi
+          fi
 
       - name: Check required secrets
         shell: bash
@@ -81,6 +105,13 @@ jobs:
           fi
           exit "$missing"
 
+      - name: Set dashboard URL
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY%/*}"
+          name="${GITHUB_REPOSITORY#*/}"
+          echo "DASHBOARD_URL=https://${owner,,}.github.io/${name}/" >> "$GITHUB_ENV"
+
       - name: Run scanner
         shell: bash
         run: |
@@ -90,6 +121,84 @@ jobs:
             python -m src.main
           fi
 
+      - name: Zoning GIS smoke test
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Prova a URL do GIS estadual com uma coordenada fixa do centro de
+          # Orlando, sem depender de aparecer listagem nova. Fica em cache,
+          # então só a primeira rodada faz a chamada de verdade — exceto com
+          # chave Regrid, quando o smoke vira health check da assinatura.
+          python - <<'PY'
+          import os
+          from src.config import Config
+          from src.models import Listing
+          from src.zoning import ZoningCache, lookup_zoning
+          cfg = Config.load()
+          # O smoke sempre sonda de verdade: fura o cache quando o registro é
+          # de falha (o cache de sucesso fica, evitando chamadas repetidas).
+          # Com REGRID_API_KEY presente, fura sempre: 1 chamada por rodada
+          # confirma que a assinatura paga segue ativa (e avisa quando o
+          # token expirar, em vez de cair para o GIS público em silêncio).
+          regrid_on = bool(os.environ.get("REGRID_API_KEY", "").strip())
+          section = cfg.raw.get("zoning_lookup", {})
+          cache = ZoningCache(section.get("cache_db", "region_signals.db"))
+          key = ZoningCache.key_for(28.5384, -81.3789)
+          cached = cache.get(key, max_age_days=3650)
+          if cached is not None and (regrid_on or not cached.get("zoning")):
+              cache.conn.execute("DELETE FROM zoning_cache WHERE key = ?", (key,))
+              cache.conn.commit()
+          cache.close()
+          # Endereço com ZIP para exercitar também o fallback por county.
+          listing = Listing(id="smoke-test", price=1, lat=28.5384, lng=-81.3789,
+                            address="400 S Orange Ave, Orlando, FL 32801")
+          zoning, note = lookup_zoning(listing, cfg)
+          if zoning:
+              print(f"[smoke] zoning GIS OK: {zoning} | {note}")
+              if regrid_on and "regrid" not in str(note or ""):
+                  print("[smoke] ATENÇÃO: chave Regrid presente, mas a resposta "
+                        "veio do GIS público — confira a assinatura/validade do "
+                        "token em app.regrid.com")
+          else:
+              print("[smoke] zoning GIS SEM RESULTADO — conferir URL em config.yaml -> zoning_lookup")
+          # Se a Regrid não respondeu, o /usage diz o status da conta direto
+          # da fonte (flags trial/paid no histórico) sem gastar cota de
+          # parcelas. O token nunca aparece: o Actions mascara secrets.
+          if regrid_on and "regrid" not in str(note or ""):
+              import requests
+              try:
+                  resp = requests.get(
+                      "https://app.regrid.com/api/v2/usage",
+                      params={"token": os.environ["REGRID_API_KEY"].strip(),
+                              "return_full_history": "true"},
+                      timeout=30)
+                  print(f"[smoke] regrid /usage: HTTP {resp.status_code} | {resp.text[:600]}")
+              except Exception as exc:
+                  print(f"[smoke] regrid /usage falhou: {type(exc).__name__}: {exc}")
+          PY
+
+      - name: Build dashboard site
+        if: always()
+        run: python -m src.site
+
+      - name: Configure GitHub Pages
+        if: always()
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload dashboard to Pages
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy dashboard to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
+
       - name: Save scanner memory
         if: ${{ always() && hashFiles('seen_listings.db') != '' }}
         uses: actions/cache/save@v4
@@ -97,6 +206,8 @@ jobs:
           path: |
             seen_listings.db
             seen_listings.db-*
+            region_signals.db
+            region_signals.db-*
             opportunities.csv
             evaluations.csv
           key: orlando-land-state-${{ github.run_id }}
@@ -112,3 +223,46 @@ jobs:
             seen_listings.db
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Alert on workflow failure (WhatsApp)
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          # Silêncio deve significar "sem oportunidade", nunca "sistema quebrado".
+          if [ -n "${ZAPI_INSTANCE_ID:-}" ] && [ -n "${ZAPI_INSTANCE_TOKEN:-}" ] && [ -n "${ZAPI_PHONE:-}" ]; then
+            run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            payload=$(printf '{"phone":"%s","message":"[Orlando Land] ALERTA: a varredura #%s FALHOU. Verifique: %s"}' \
+              "$ZAPI_PHONE" "${{ github.run_number }}" "$run_url")
+            headers=(-H "Content-Type: application/json")
+            [ -n "${ZAPI_CLIENT_TOKEN:-}" ] && headers+=(-H "Client-Token: ${ZAPI_CLIENT_TOKEN}")
+            curl -sS -X POST "${headers[@]}" -d "$payload" \
+              "https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_INSTANCE_TOKEN}/send-text" || true
+          fi
+
+      - name: Persist state to data branch
+        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
+        shell: bash
+        run: |
+          # Último passo do job: troca de branch é segura porque nada mais
+          # roda depois. Guarda a memória do scanner de forma permanente.
+          set -e
+          mkdir -p /tmp/state
+          for f in seen_listings.db region_signals.db opportunities.csv evaluations.csv; do
+            [ -f "$f" ] && cp "$f" /tmp/state/
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin data 2>/dev/null; then
+            git checkout -f -B data origin/data
+          else
+            git checkout --orphan data
+            git rm -rf --quiet . 2>/dev/null || true
+          fi
+          mkdir -p state
+          cp /tmp/state/* state/
+          git add -f state
+          if git commit -m "Atualizar estado do scanner ($(date -u +%Y-%m-%dT%H:%MZ))"; then
+            git push origin data
+          else
+            echo "estado sem mudanças; nada a publicar"
+          fi

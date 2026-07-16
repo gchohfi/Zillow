@@ -27,6 +27,11 @@ def _format_result(r: ViabilityResult) -> str:
         f"    Lucro estimado: US$ {r.profit:,.0f}  (margem {r.margin:.1%})",
         f"    Terreno/invest: {r.land_to_total_investment:.1%}",
         f"    Distância     : {dist} de Orlando",
+        f"    Crescimento   : "
+        + (f"{r.growth_score:.1f}/10" if r.growth_score is not None else "n/d"),
+        f"    Valorização   : "
+        + (f"{r.appreciation_score:.1f}/10 ({r.appreciation_label})" if r.appreciation_score is not None else "n/d"),
+        f"    Preço-alvo    : US$ {r.max_supported_land_price:,.0f}",
         f"    Link          : {L.url or '(sem link)'}",
         f"    Teses         : {', '.join(r.market_strategies) if r.market_strategies else 'n/d'}",
         f"    Atenções      : {', '.join(r.risk_flags) if r.risk_flags else 'n/d'}",
@@ -64,7 +69,11 @@ def notify_radar(
         print("Nenhum candidato de Radar nesta rodada.")
         return
 
-    ranked = sorted(results, key=lambda r: (r.market_score, r.margin, r.profit), reverse=True)
+    ranked = sorted(
+        results,
+        key=lambda r: (r.appreciation_score or 0, r.market_score, r.margin, r.profit),
+        reverse=True,
+    )
     selected = ranked[:max_messages]
     print(f"{len(results)} candidato(s) no Radar; {len(selected)} selecionado(s) para WhatsApp.")
     if dry_run:
@@ -100,6 +109,13 @@ def send_whatsapp_status(message: str, dry_run: bool = False) -> None:
     _maybe_send_zapi_whatsapp(message)
 
 
+def _regrid_map_url(lat: float, lng: float) -> str:
+    """Link do mapa da Regrid nas coordenadas do lote (conta Pro mostra
+    dono da parcela e zoneamento). Se o formato do hash mudar, o mapa
+    abre na visão padrão e a busca manual continua funcionando."""
+    return f"https://app.regrid.com/map#ll={lat:.6f},{lng:.6f}&z=17"
+
+
 def _format_whatsapp_result(r: ViabilityResult) -> str:
     listing = r.listing
     raw = listing.raw or {}
@@ -123,10 +139,23 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
         f"Custo total: US$ {r.total_cost:,.0f}",
         f"Lucro estimado: US$ {r.profit:,.0f}",
-        f"Margem: {r.margin:.1%}",
+        f"Margem: {r.margin:.1%}"
+        + (f" (pessimista: {r.margin_stress:.1%})" if r.margin_stress is not None else ""),
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.growth_score is not None:
+        lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
+        summary = r.growth_signals.get("summary", [])
+        if summary:
+            lines.append(f"Sinais: {'; '.join(summary)}")
+    if r.appreciation_score is not None:
+        lines.append(
+            f"Valorizacao: {r.appreciation_score:.1f}/10 ({r.appreciation_label}) - "
+            f"regiao {r.regional_appreciation_score or 0:.1f}, "
+            f"imovel {r.property_potential_score or 0:.1f}"
+        )
+        lines.append(f"Preco maximo p/ margem-alvo: US$ {r.max_supported_land_price:,.0f}")
     if r.risk_flags:
         lines.append(f"Atencoes: {'; '.join(r.risk_flags)}")
     mls = " ".join(str(part) for part in [raw.get("mlsName"), raw.get("mlsNumber")] if part)
@@ -151,6 +180,7 @@ def _format_whatsapp_result(r: ViabilityResult) -> str:
         f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
         f"Zillow: https://www.zillow.com/homes/{zillow_query}_rb/",
         f"Realtor: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+        f"Regrid (dono/zoneamento): {_regrid_map_url(listing.lat, listing.lng)}",
     ])
     return "\n".join(lines)
 
@@ -166,13 +196,18 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
     status_label = {
         "radar_zoneamento_pendente": "Radar - zoneamento pendente",
         "radar_analise_manual": "Radar - analise manual",
+        "radar_valorizacao": "Radar - valorizacao / negociar preco",
     }.get(r.review_status, "Radar - revisar")
 
     attention = [reason for reason in r.reasons if reason.startswith(("✗", "⚠"))]
     lines = [
         "Radar Orlando Land",
         status_label,
-        "NAO OFERTAR antes de confirmar zoneamento/county GIS.",
+        (
+            "NEGOCIAR ate o preco-alvo e concluir due diligence antes de ofertar."
+            if r.review_status == "radar_valorizacao"
+            else "NAO OFERTAR antes de confirmar zoneamento/county GIS."
+        ),
         "",
         address,
         f"Motivo: {r.review_reason or 'revisar diligencia'}",
@@ -186,10 +221,25 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"ARV fonte: {'RentCast comps' if r.arv_source == 'rentcast_avm' else 'premissa fixa'}",
         f"Custo total: US$ {r.total_cost:,.0f}",
         f"Lucro estimado: US$ {r.profit:,.0f}",
-        f"Margem: {r.margin:.1%}",
+        f"Margem: {r.margin:.1%}"
+        + (f" (pessimista: {r.margin_stress:.1%})" if r.margin_stress is not None else ""),
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
+        f"Preco maximo p/ margem-alvo: US$ {r.max_supported_land_price:,.0f}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.appreciation_score is not None:
+        lines.append(
+            f"Valorizacao: {r.appreciation_score:.1f}/10 ({r.appreciation_label}) - "
+            f"regiao {r.regional_appreciation_score or 0:.1f}, "
+            f"imovel {r.property_potential_score or 0:.1f}"
+        )
+        if r.appreciation_factors:
+            lines.append(f"Vetores: {'; '.join(r.appreciation_factors)}")
+    if r.growth_score is not None:
+        lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
+        summary = r.growth_signals.get("summary", [])
+        if summary:
+            lines.append(f"Sinais: {'; '.join(summary)}")
     if r.risk_flags:
         lines.append(f"Atencoes: {'; '.join(r.risk_flags)}")
     if attention:
@@ -208,13 +258,18 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Google Maps: https://www.google.com/maps/search/?api=1&query={maps_query}",
         f"Zillow manual: https://www.zillow.com/homes/{zillow_query}_rb/",
         f"Realtor manual: https://www.realtor.com/realestateandhomes-search/{realtor_query}",
+        f"Regrid (dono/zoneamento): {_regrid_map_url(listing.lat, listing.lng)}",
     ])
     return "\n".join(lines)
 
 
 def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
     max_messages = int(env("WHATSAPP_MAX_OPPORTUNITIES", "10") or 10)
-    ranked = sorted(results, key=lambda r: (r.market_score, r.margin, r.profit), reverse=True)
+    ranked = sorted(
+        results,
+        key=lambda r: (r.appreciation_score or 0, r.market_score, r.margin, r.profit),
+        reverse=True,
+    )
     selected = ranked[:max_messages]
     if not selected:
         return

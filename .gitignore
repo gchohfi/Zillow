@@ -10,5 +10,6 @@ __pycache__/
 *.log
 opportunities.csv
 evaluations.csv
+site/
 archive/
 .pytest_cache/

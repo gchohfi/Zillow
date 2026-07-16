@@ -25,6 +25,8 @@ def _cfg() -> Config:
         },
         "radar": {
             "enabled": True,
+            "include_financial_near_misses": True,
+            "min_margin": 0.10,
             "include_unknown_zoning": True,
             "include_manual_review_segments": True,
             "include_high_flood_risk": True,
@@ -71,6 +73,44 @@ def test_bad_numbers_do_not_become_radar_even_with_unknown_zoning():
     assert not result.is_viable
     assert result.review_status == "reprovado"
     assert result.review_reason == "nao passou nos filtros financeiros"
+
+
+def test_positive_margin_near_target_becomes_radar():
+    cfg = _cfg()
+    lot = Listing(
+        id="near-margin",
+        price=125_000,
+        lat=28.41,
+        lng=-81.50,
+        lot_size_sqft=8000,
+        zoning="residential",
+    )
+
+    result = evaluate(lot, cfg)
+    classify_review_status(result, cfg)
+
+    assert 0.10 <= result.margin < 0.18
+    assert not result.is_viable
+    assert result.review_status == "radar_margem_limite"
+    assert "abaixo do alvo" in result.review_reason
+
+
+def test_near_margin_still_rejects_commercial_zoning():
+    cfg = _cfg()
+    lot = Listing(
+        id="near-margin-commercial",
+        price=125_000,
+        lat=28.41,
+        lng=-81.50,
+        lot_size_sqft=8000,
+        zoning="commercial",
+    )
+
+    result = evaluate(lot, cfg)
+    classify_review_status(result, cfg)
+
+    assert result.review_status == "reprovado"
+    assert "bloqueio automatico" in result.review_reason
 
 
 def test_manual_review_segment_with_good_numbers_becomes_radar():

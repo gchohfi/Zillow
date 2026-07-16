@@ -28,7 +28,9 @@ Arquivos principais:
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
 | `src/storage.py` | Banco SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/viability.py` | Motor de viabilidade do spec build |
+| `src/appreciation.py` | Score de valorização regional e potencial de negociação do lote |
 | `src/notifier.py` | Envio de alertas (console, e-mail SMTP, Telegram, WhatsApp via Z-API) |
+| `src/site.py` | Gera o dashboard estático publicado no GitHub Pages |
 | `src/main.py` | Orquestra tudo: busca → filtra → pontua → alerta |
 
 ---
@@ -108,6 +110,7 @@ Secrets principais:
 | Secret | Obrigatório? | Uso |
 |---|---:|---|
 | `RENTCAST_API_KEY` | Sim | Busca listagens e ARV/comps na RentCast |
+| `REGRID_API_KEY` | Opcional | Zoneamento/uso do solo/dono da parcela (Regrid; **requer plano pago** — o trial não cobre Orlando) |
 | `ZAPI_INSTANCE_ID` | Para WhatsApp | Instância da Z-API |
 | `ZAPI_INSTANCE_TOKEN` | Para WhatsApp | Token da instância Z-API |
 | `ZAPI_CLIENT_TOKEN` | Se sua Z-API exigir | Client token da Z-API |
@@ -116,10 +119,13 @@ Secrets principais:
 | `SMTP_*` / `ALERT_EMAIL_TO` | Opcional | Alertas por e-mail |
 | `TELEGRAM_*` | Opcional | Alertas por Telegram |
 
-O workflow restaura e salva `seen_listings.db`, `opportunities.csv` e
-`evaluations.csv` usando cache do GitHub Actions. Isso evita que a nuvem esqueça
-o que já foi visto entre uma rodada e outra. Os CSVs e o banco também são
-enviados como artifacts por 14 dias para auditoria.
+O workflow restaura e salva `seen_listings.db`, `region_signals.db`,
+`opportunities.csv` e `evaluations.csv` usando cache do GitHub Actions, e
+também **grava uma cópia permanente no branch `data` do repositório** ao fim
+de cada rodada. Se o cache for despejado (o GitHub apaga caches após ~7 dias
+sem uso), o estado é restaurado do branch `data` automaticamente — sem isso, a
+rodada seguinte trataria tudo como novo e dispararia alertas repetidos. Os
+CSVs e o banco também são enviados como artifacts por 14 dias para auditoria.
 
 Para mudar a frequência, edite o cron no workflow:
 
@@ -161,6 +167,22 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
+**Confirmação automática via GIS:** quando a listagem vem sem zoneamento, o
+sistema consulta fontes de parcela por coordenada e preenche o uso do solo
+antes da avaliação (`config.yaml → zoning_lookup`). A fonte preferencial é a
+**Regrid Parcels API** (zoneamento, uso do solo e dono da parcela; liga
+automaticamente quando `REGRID_API_KEY` existir). Atenção: o **trial da
+Regrid não cobre Orlando** — a API responde "This area is not included in
+API trials"; para dados reais é preciso um plano pago (regrid.com/api).
+Sem chave válida, o sistema usa os GIS públicos (estadual e por county, com
+raio de 30 m para geocodes que caem na rua) — validados em produção; se
+tudo falhar, a listagem segue para o Radar, como sempre.
+Residencial confirmado vira oportunidade viável direto no WhatsApp;
+comercial/industrial/conservação é reprovado sem revisão manual; falha de
+GIS mantém o comportamento atual (Radar). O resultado fica em cache por 90
+dias e novas fontes (ex.: GIS de um county) podem ser adicionadas só no
+config, sem mexer em Python.
+
 ### Normalização de endereço e red flags
 
 O sistema normaliza endereços dos EUA com `usaddress` para reduzir duplicidade
@@ -172,6 +194,43 @@ Antes do WhatsApp, também existe uma checagem direta na FEMA National Flood
 Hazard Layer (`config.yaml → red_flags.flood`). Zonas como `AE`, `VE` ou pontos
 marcados como SFHA entram nas atenções do alerta e do CSV. Por padrão, falha na
 FEMA não bloqueia alerta; ela apenas adiciona uma atenção para conferência manual.
+
+### Sinais de crescimento da região
+
+Para ajudar a identificar regiões em valorização, cada oportunidade (viável ou
+radar) é enriquecida com sinais estudados de crescimento, usando fontes
+públicas gratuitas:
+
+- **Escolas e comércio próximos** (OpenStreetMap/Overpass): contagem num raio
+  de 3 km do terreno.
+- **Crescimento de população e renda** (US Census ACS 5 anos, por ZIP):
+  variação percentual em 5 anos.
+
+Os sinais viram um **score 0–10** (`config.yaml → region_signals`) que aparece
+nos cards "Crescimento por região" do dashboard, na coluna "Região ↑" das
+tabelas, no popup do mapa, no CSV (`growth_score`, `growth_signals`) e na
+mensagem do WhatsApp. Falha de API nunca bloqueia alerta — só deixa o sinal
+vazio. Os resultados ficam em cache por ZIP (`region_signals.db`, revalidado a
+cada 30 dias), então o custo por rodada é de poucas chamadas.
+
+### Radar de valorização
+
+O sistema mantém a aprovação automática conservadora, mas não descarta mais
+todo imóvel que fica pouco abaixo da margem-alvo. Depois da conta financeira,
+`src/appreciation.py` combina:
+
+- tese do ZIP e sinais locais de escolas/comércio;
+- projeção oficial de população de 2025 a 2035 por county;
+- ciclo metropolitano do FHFA (curto e longo prazo);
+- proximidade da margem-alvo, cenário pessimista, confiança do ARV e encaixe do lote;
+- diferença entre a pedida e o **preço máximo do terreno que preserva a margem-alvo**.
+
+Um near miss só vira `radar_valorizacao` se região e imóvel atingirem os
+scores mínimos e a negociação necessária respeitar os limites percentual e em
+dólares de `config.yaml → appreciation`. Uso comercial/industrial, flood
+bloqueado ou uma conta muito distante continuam reprovados. O score serve para
+priorizar investigação e negociação; ele não é previsão nem autorização de
+compra.
 
 ### Tese de mercado por ZIP
 
@@ -209,8 +268,10 @@ pontos sobrepostos em `config.yaml → datasource.rentcast.search_points`.
 
 O alerta por WhatsApp manda uma mensagem curta por oportunidade com endereço,
 segmento, preço, ARV, lucro, margem, distância e links automáticos para Google
-Maps, Zillow e Realtor. Se a fonte trouxer o link original da listagem, ele
-também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
+Maps, Zillow, Realtor e para o **mapa da Regrid nas coordenadas do lote** (com
+uma conta Regrid Pro logada, mostra o dono da parcela e o zoneamento — dado
+chave para abordagem off-market). Se a fonte trouxer o link original da
+listagem, ele também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
 oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
 
 Além dos alertas de oportunidade, `config.yaml → notifications.whatsapp_run_summary`
@@ -218,15 +279,23 @@ envia um resumo operacional a cada rodada: quantas listagens foram encontradas,
 quantas já eram vistas, quantas reprovaram e quantas viraram oportunidade. Assim
 você sabe que o monitor rodou mesmo quando não há nada para comprar.
 
+Se o workflow inteiro **falhar** (API fora, erro inesperado), um alerta de pane
+é enviado por WhatsApp com o link da execução — silêncio significa "sem
+oportunidade", nunca "sistema quebrado".
+
 Antes do WhatsApp, o sistema faz uma checagem de disponibilidade com dados
 estruturados da fonte: status ativo, sem `removedDate`, visto recentemente,
 listado há poucos dias e com MLS. Isso reduz casos em que o endereço aparece no
 Zillow como vendido/off-market. O Zillow continua como link de conferência, não
 como fonte automática por scraping.
 
-Para economizar chamadas no primeiro teste, o padrão busca listagens com
-`daysOld: "1-14"` e apenas a primeira página (`max_pages: 1`). Esses valores são
-ajustáveis em `config.yaml`.
+Antes do WhatsApp, o sistema faz a checagem de disponibilidade descrita acima.
+Listagens **sem número de MLS** não são mais descartadas em silêncio: elas
+passam com a atenção "MLS ausente (conferir listagem manualmente)" no alerta.
+Para voltar ao comportamento restritivo, ligue `availability.require_mls_number`.
+
+O padrão busca listagens com `daysOld: "0-7"` e até 3 páginas por rodada
+(`max_pages: 3`, ~300 listagens). Esses valores são ajustáveis em `config.yaml`.
 
 ## Testes
 
@@ -235,7 +304,39 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-## Dashboard interno
+O workflow `.github/workflows/tests.yml` roda a suíte automaticamente em cada
+push e pull request.
+
+## Dashboard para a empresa (GitHub Pages)
+
+A cada varredura, o workflow gera um **dashboard estático** com KPIs, mapa e
+tabelas (viáveis, radar e todas as avaliações) e publica no GitHub Pages:
+
+```
+https://gchohfi.github.io/Zillow/
+```
+
+É esse link que você passa para a empresa acompanhar as oportunidades — ele
+também sai no resumo de rodada do WhatsApp. O dashboard tem busca por
+endereço/ZIP/região, filtros por status e download dos CSVs.
+
+> ⚠️ Como o repositório é público, o dashboard também é público: qualquer pessoa
+> com o link vê os dados. Se isso for um problema, torne o repositório privado
+> (Pages privado exige plano pago) ou me peça outra forma de publicação.
+
+Para ativar na primeira vez: o workflow tenta habilitar o Pages sozinho; se a
+etapa "Configure GitHub Pages" falhar, habilite manualmente em
+`Settings → Pages → Source: GitHub Actions` e rode o workflow de novo.
+
+Para gerar localmente sem publicar:
+
+```bash
+python -m src.site        # escreve site/index.html a partir dos CSVs
+```
+
+A janela de dados exibida é `config.yaml → site.period_days` (padrão 30 dias).
+
+## Dashboard interno (Streamlit)
 
 O painel Streamlit mostra oportunidades, avaliações reprovadas, tese de mercado,
 red flags e mapa interativo quando houver coordenadas no CSV:
@@ -260,6 +361,8 @@ ARV (valor de revenda da casa pronta)   = RentCast AVM/comps, ou fallback preço
 − Custos "soft" (projeto, licenças)      = soft_cost_pct × custo_construção
 − Closing da compra do terreno           = purchase_closing_pct × terreno
 − Contingência de obra                    = contingency_pct × construção
+− Preparação do lote                      = site_prep_cost (limpeza, aterro, conexões)
+− Impact fees do county                   = impact_fees (por unidade)
 − Custos de carrego (juros, IPTU, seguro)= carrying_cost_annual_pct × meses/12 × (terreno + construção)
 − Custos de venda (comissão + closing)   = selling_cost_pct × ARV
 = LUCRO estimado
@@ -271,12 +374,47 @@ Terreno/investimento total = Preço do terreno / Custo total estimado
 **Regras de corte** (ajustáveis em `config.yaml`) que decidem viável / não viável:
 
 - Terreno deve ser **≤ `max_land_to_total_investment_pct`** do investimento total, hoje 27%
-- No baixo padrão, preço do terreno deve ser **≤ `max_land_price`**, hoje US$ 50.000
+- O teto fixo do baixo padrão foi removido; o preço máximo agora é calculado
+  dinamicamente a partir do ARV, custos e margem-alvo
 - Alto padrão não é aprovado automaticamente: exige análise de bairro/demanda
 - Margem líquida **≥ `target_margin`** (ex.: 18%)
 - Listagens com preço zerado ou inválido são descartadas antes de gerar alerta
 - Zoneamento deve permitir residencial; se `require_known_zoning` estiver ligado,
   zoneamento ausente também bloqueia alerta automático
+
+O Radar financeiro genérico está desligado. Margem entre 10% e 18% só é
+recuperada quando também passa pelo Radar de valorização: região forte, score
+do imóvel, proporção do terreno e diferença de negociação dentro dos limites.
+Isso reduz ruído e não transforma o imóvel em viável.
+
+Além disso:
+
+- **Preparação do lote e impact fees** entram na conta por segmento
+  (`costs.site_prep_cost` / `costs.impact_fees`). Os valores padrão são
+  estimativas de mercado de Central FL — **calibre com os seus números**
+  (0 desliga). Eles apertam a régua de propósito: eram custos reais que a
+  fórmula ignorava.
+- **Impact fees por county** (`config.yaml → county_costs`): quando o ZIP da
+  listagem é conhecido, os custos do county sobrepõem os do segmento —
+  Osceola cobra bem mais que Polk, e um valor único mascarava isso. ZIPs
+  fora da tabela usam os valores do segmento.
+- **Cenário pessimista em toda avaliação** (`config.yaml → stress`): cada
+  oportunidade mostra lucro e margem também com ARV 10% menor e obra 10%
+  mais cara — no WhatsApp, no CSV (`margin_stress`) e no dashboard. Margem
+  negativa no pessimista vira atenção no alerta (não bloqueia).
+- **Divergência de ARV** (`arv.divergence_warn_pct`): quando o ARV dos comps
+  diverge mais de 15% da premissa fixa, a oportunidade ganha a atenção
+  "conferir comps" — divergência grande significa incerteza no número mais
+  importante da conta.
+- **Validação do config na largada**: erros de digitação no `config.yaml`
+  (percentual acima de 1, campo ausente) param a execução com mensagem
+  clara em vez de produzir números silenciosamente errados.
+- **Trava de qualidade do ARV**: comps agora exigem mínimo de 5
+  (`arv.min_comps`); AVM com confiança baixa acima da premissa fica
+  **limitado à premissa** (`arv.cap_confidences`), evitando falso positivo
+  por AVM otimista.
+- **Lote mínimo por segmento**: médio padrão exige 7.000 sqft (casa de
+  2.200 sqft + recuos), alto padrão 12.000 sqft.
 
 Todos esses números são **seus** — edite `config.yaml`.
 

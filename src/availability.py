@@ -71,11 +71,12 @@ def check_availability(listing: Listing, cfg: Config) -> tuple[bool, list[str]]:
                 ok = False
                 reasons.append(f"listado ha {age_days:.1f}d")
 
-    if rules.get("require_mls_number", True):
-        if raw.get("mlsNumber"):
-            reasons.append(f"MLS: {raw.get('mlsName') or 'n/d'} {raw.get('mlsNumber')}")
-        else:
-            ok = False
-            reasons.append("MLS ausente")
+    if raw.get("mlsNumber"):
+        reasons.append(f"MLS: {raw.get('mlsName') or 'n/d'} {raw.get('mlsNumber')}")
+    elif rules.get("require_mls_number", True):
+        ok = False
+        reasons.append("MLS ausente")
+    else:
+        reasons.append("⚠ MLS ausente (conferir listagem manualmente)")
 
     return ok, reasons

@@ -98,3 +98,41 @@ def test_enrich_arv_falls_back_when_comps_are_insufficient(monkeypatch):
     assert listing.arv_estimate is None
     assert result.arv == 660_000
     assert result.arv_source == "config"
+
+
+def test_enrich_arv_caps_low_confidence_at_config_premise(monkeypatch):
+    cfg = _cfg()
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3, address="Low conf")
+    monkeypatch.setenv("RENTCAST_API_KEY", "key")
+    monkeypatch.setattr(
+        "src.arv.requests.get",
+        lambda *args, **kwargs: _Response({
+            "price": 900_000,   # bem acima da premissa de 660k
+            "comparables": [{"id": i} for i in range(5)],
+            "confidenceScore": "low",
+        }),
+    )
+
+    enrich_arv(listing, cfg)
+
+    # Premissa: 2000 sqft x 330 = 660k
+    assert listing.arv_estimate == 660_000
+    assert "limitado à premissa" in listing.arv_confidence
+
+
+def test_enrich_arv_keeps_high_confidence_value(monkeypatch):
+    cfg = _cfg()
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3, address="High conf")
+    monkeypatch.setenv("RENTCAST_API_KEY", "key")
+    monkeypatch.setattr(
+        "src.arv.requests.get",
+        lambda *args, **kwargs: _Response({
+            "price": 900_000,
+            "comparables": [{"id": i} for i in range(5)],
+            "confidenceScore": "high",
+        }),
+    )
+
+    enrich_arv(listing, cfg)
+    assert listing.arv_estimate == 900_000
+    assert listing.arv_confidence == "high"
