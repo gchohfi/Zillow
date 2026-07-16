@@ -113,6 +113,11 @@ def validate_config(cfg: "Config") -> list[str]:
     _number("rules", "target_margin", 0, 1)
     _number("rules", "max_land_to_total_investment_pct", 0, 1)
 
+    development = raw.get("development")
+    if isinstance(development, dict) and development.get("enabled", False):
+        _number("development", "min_lot_size_sqft", 43_560)
+        _number("development", "max_price_per_acre", 0, required=False)
+
     costs = raw.get("costs")
     if isinstance(costs, dict):
         for field in _PCT_FIELDS:

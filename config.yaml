@@ -265,6 +265,18 @@ radar:
   include_manual_review_segments: true
   include_high_flood_risk: true
 
+# ---- Terrenos maiores para desenvolvimento imobiliário ----
+# Trilha separada do spec build de uma casa. Áreas grandes entram no Radar
+# para loteamento, multifamily, BTR, townhomes ou land banking, mesmo quando
+# a fórmula unifamiliar reprova. Não representa aprovação automática.
+development:
+  enabled: true
+  min_lot_size_sqft: 87120     # 2 acres; 1 acre = 43.560 sqft
+  max_price_per_acre: 0        # 0 = sem teto até calibrarmos por corredor
+  blocked_zoning_hints:
+    - conservation
+    - wetland
+
 # ---- Sinais de crescimento da região (dashboard + WhatsApp) ----
 # Fontes gratuitas: OpenStreetMap (escolas/comércio próximos) e US Census ACS
 # (crescimento de população e renda por ZIP em 5 anos). Falha de API nunca

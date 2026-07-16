@@ -28,6 +28,9 @@ _COLUMNS = [
     "lng",
     "distance_km",
     "land_price",
+    "lot_size_sqft",
+    "lot_size_acres",
+    "price_per_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -76,6 +79,9 @@ _EVALUATION_COLUMNS = [
     "lng",
     "distance_km",
     "land_price",
+    "lot_size_sqft",
+    "lot_size_acres",
+    "price_per_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -165,6 +171,14 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
                 "lng": L.lng,
                 "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
                 "land_price": round(r.land_cost),
+                "lot_size_sqft": "" if L.lot_size_sqft is None else round(L.lot_size_sqft),
+                "lot_size_acres": (
+                    "" if L.lot_size_sqft is None else f"{L.lot_size_sqft / 43_560:.2f}"
+                ),
+                "price_per_acre": (
+                    "" if not L.lot_size_sqft
+                    else round(r.land_cost / (L.lot_size_sqft / 43_560))
+                ),
                 "arv": round(r.arv),
                 "arv_source": r.arv_source,
                 "arv_comps_count": r.arv_comps_count or "",
@@ -229,6 +243,14 @@ def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
                 "lng": L.lng,
                 "distance_km": round(L.distance_km, 1) if L.distance_km is not None else "",
                 "land_price": round(r.land_cost),
+                "lot_size_sqft": "" if L.lot_size_sqft is None else round(L.lot_size_sqft),
+                "lot_size_acres": (
+                    "" if L.lot_size_sqft is None else f"{L.lot_size_sqft / 43_560:.2f}"
+                ),
+                "price_per_acre": (
+                    "" if not L.lot_size_sqft
+                    else round(r.land_cost / (L.lot_size_sqft / 43_560))
+                ),
                 "arv": round(r.arv),
                 "arv_source": r.arv_source,
                 "arv_comps_count": r.arv_comps_count or "",

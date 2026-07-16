@@ -73,6 +73,32 @@ def _passes_numeric_filters(result: ViabilityResult, cfg: Config) -> bool:
     return True
 
 
+def _is_development_candidate(result: ViabilityResult, cfg: Config) -> bool:
+    """Identifica áreas grandes cuja tese não é construir apenas uma casa."""
+    development = cfg.raw.get("development", {})
+    if not development.get("enabled", False):
+        return False
+
+    lot_size = result.listing.lot_size_sqft
+    min_lot_size = float(development.get("min_lot_size_sqft", 0) or 0)
+    if lot_size is None or lot_size < min_lot_size:
+        return False
+
+    acres = lot_size / 43_560
+    price_per_acre = result.land_cost / acres if acres else float("inf")
+    max_price_per_acre = float(development.get("max_price_per_acre", 0) or 0)
+    if max_price_per_acre > 0 and price_per_acre > max_price_per_acre:
+        return False
+
+    zoning = _plain(result.listing.zoning or "")
+    blocked_hints = development.get(
+        "blocked_zoning_hints", ["conservation", "wetland"]
+    )
+    return not any(
+        _plain(str(hint)) in zoning for hint in blocked_hints if hint
+    )
+
+
 def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
     """Seta o bucket de revisão usado por CSV, dashboard e WhatsApp."""
     if result.is_viable:
@@ -84,6 +110,22 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
     if not radar_cfg.get("enabled", False):
         result.review_status = "reprovado"
         result.review_reason = "fora dos filtros atuais"
+        return
+
+    if _is_development_candidate(result, cfg):
+        lot_size = float(result.listing.lot_size_sqft or 0)
+        acres = lot_size / 43_560
+        price_per_acre = result.land_cost / acres
+        zoning_note = "; zoneamento pendente" if not result.listing.zoning else ""
+        result.review_status = "radar_desenvolvimento"
+        result.review_reason = (
+            f"area de {acres:.1f} acres para desenvolvimento; "
+            f"US$ {price_per_acre:,.0f}/acre{zoning_note}"
+        )
+        result.reasons.append(
+            f"◆ tese de desenvolvimento: {acres:.1f} acres, "
+            f"US$ {price_per_acre:,.0f}/acre"
+        )
         return
 
     if not _passes_numeric_filters(result, cfg):
