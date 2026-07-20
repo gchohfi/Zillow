@@ -13,24 +13,34 @@ algo que vale a pena.
 ## Como funciona (pipeline)
 
 ```
-  Fonte de dados        Geofiltro          Novidade           Viabilidade         Alerta
- (listagens novas) ──▶ (≤80km de    ──▶ (já vi antes? ) ──▶ (a fórmula diz   ──▶ (e-mail /
-                        Orlando)          guarda no DB)        viável?)             Telegram /
-                                                                                   console)
+  Fonte de dados     Geofiltro       Novidade         Enriquecimento           Viabilidade            Alerta
+ (listagens novas) ─▶ (≤80km) ─▶ (já vi antes?) ─▶ (zoneamento GIS, ARV, ─▶ (fórmula + estresse ─▶ (WhatsApp/e-mail/
+                                                    FEMA, aluguel, sinais)     + lente de renda)      dashboard/memo)
 ```
 
 Arquivos principais:
 
 | Arquivo | Papel |
 |---|---|
-| `config.yaml` | **A sua fórmula** e parâmetros (margem alvo, custo de construção, raio, etc.) |
-| `src/datasource.py` | Cliente da fonte de dados (Fase 1: RapidAPI configurável; tem modo `mock`) |
+| `config.yaml` | **A sua fórmula** e todos os parâmetros (margem alvo, custos, premissas de renda, matriz de estresse, tese de mercado…) |
+| `src/main.py` | Orquestra tudo: busca → filtra → enriquece → avalia → alerta |
+| `src/datasource.py` | Fonte de listagens (RentCast; RapidAPI como fallback; modo `mock` sem chave) |
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
-| `src/storage.py` | Banco SQLite que lembra listagens já vistas → detecta o que é novo |
-| `src/viability.py` | Motor de viabilidade do spec build |
-| `src/notifier.py` | Envio de alertas (console, e-mail SMTP, Telegram, WhatsApp via Z-API) |
-| `src/site.py` | Gera o dashboard estático publicado no GitHub Pages |
-| `src/main.py` | Orquestra tudo: busca → filtra → pontua → alerta |
+| `src/storage.py` | SQLite que lembra listagens já vistas → detecta o que é novo |
+| `src/availability.py` | Checagem de disponibilidade (status ativo, idade da listagem, MLS) |
+| `src/zoning.py` | Confirmação de zoneamento/uso do solo via Regrid ou GIS públicos (estadual + county) |
+| `src/arv.py` | ARV da casa pronta por comps reais (RentCast AVM), com travas de qualidade |
+| `src/rental.py` | Lente de renda: aluguel estimado → NOI, cap rate, DSCR, cash-on-cash |
+| `src/red_flags.py` | Zona de enchente FEMA (risco + sobretaxa de seguro) |
+| `src/viability.py` | Motor de viabilidade do spec build + cenário pessimista + matriz de sensibilidade |
+| `src/market_strategy.py` | Tese de mercado por ZIP (relatório Arwell) |
+| `src/region_signals.py` | Sinais de crescimento da região (escolas/comércio OSM, população/renda Census) |
+| `src/review.py` | Tri-estado: viável / radar (revisão manual) / reprovado |
+| `src/reporter.py` | CSVs de oportunidades e de todas as avaliações |
+| `src/notifier.py` | Alertas (console, e-mail SMTP, Telegram, WhatsApp via Z-API) |
+| `src/memo.py` | Memorando de decisão por oportunidade (comprar/negociar/descartar) |
+| `src/site.py` | Dashboard estático (GitHub Pages) + `data.json` + memorandos + comparador |
+| `src/summary.py` | Resumo diário "sinal de vida" no WhatsApp |
 
 ---
 
@@ -265,12 +275,14 @@ pontos sobrepostos em `config.yaml → datasource.rentcast.search_points`.
 ### Alertas por WhatsApp
 
 O alerta por WhatsApp manda uma mensagem curta por oportunidade com endereço,
-segmento, preço, ARV, lucro, margem, distância e links automáticos para Google
-Maps, Zillow, Realtor e para o **mapa da Regrid nas coordenadas do lote** (com
-uma conta Regrid Pro logada, mostra o dono da parcela e o zoneamento — dado
-chave para abordagem off-market). Se a fonte trouxer o link original da
-listagem, ele também entra na mensagem. Para evitar excesso, o padrão envia só as 10 melhores
-oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
+segmento, preço, ARV, lucro, margem, distância, a linha **"Se alugar"** (aluguel,
+NOI, cap rate, DSCR), a linha **"Vigiar"** (os 2 choques que mais derrubam a
+margem daquele negócio) e links automáticos para Google Maps, Zillow, Realtor,
+o **mapa da Regrid nas coordenadas do lote** (com uma conta Regrid Pro logada,
+mostra o dono da parcela e o zoneamento — dado chave para abordagem off-market)
+e o **memorando de decisão** da oportunidade. Se a fonte trouxer o link original
+da listagem, ele também entra na mensagem. Para evitar excesso, o padrão envia
+só as 10 melhores oportunidades por rodada (`WHATSAPP_MAX_OPPORTUNITIES` no `.env`).
 
 Além dos alertas de oportunidade, `config.yaml → notifications.whatsapp_run_summary`
 envia um resumo operacional a cada rodada: quantas listagens foram encontradas,
@@ -316,7 +328,24 @@ https://gchohfi.github.io/Zillow/
 
 É esse link que você passa para a empresa acompanhar as oportunidades — ele
 também sai no resumo de rodada do WhatsApp. O dashboard tem busca por
-endereço/ZIP/região, filtros por status e download dos CSVs.
+endereço/ZIP/região, filtros por status, download dos CSVs, a seção
+**"Comparador — abertas lado a lado"** (todas as oportunidades em aberto na
+mesma base de premissas, ordenadas por margem) e o botão **"Memo"** em cada
+card, que abre o **memorando de decisão** da oportunidade
+(`site/memo/<id>.html`): resumo, tese, números, sensibilidade, riscos e a
+recomendação objetiva — COMPRAR / NEGOCIAR / DESCARTAR.
+
+**Integração com apps externos (`data.json`):** a cada rodada o site também
+publica o payload completo em JSON puro:
+
+```
+https://gchohfi.github.io/Zillow/data.json
+```
+
+O GitHub Pages serve com CORS aberto, então qualquer front-end (ex.: um app
+feito no Lovable), planilha ou script consome direto, sem chave — os campos
+incluem preço, ARV, margem, cap rate, DSCR, sensibilidade, zona FEMA, link do
+memo e coordenadas por oportunidade.
 
 > ⚠️ Como o repositório é público, o dashboard também é público: qualquer pessoa
 > com o link vê os dados. Se isso for um problema, torne o repositório privado
@@ -404,6 +433,13 @@ Além disso:
   oportunidade mostra lucro e margem também com ARV 10% menor e obra 10%
   mais cara — no WhatsApp, no CSV (`margin_stress`) e no dashboard. Margem
   negativa no pessimista vira atenção no alerta (não bloqueia).
+- **Matriz de sensibilidade** (`config.yaml → stress.matrix`): além do
+  pessimista combinado, cada premissa é chocada SOZINHA (saída −10%, obra
+  +15%, venda +6 meses, juros +2pp, seguro +US$ 5k/ano) e o alerta mostra
+  as 2 que mais destroem a margem ("Vigiar: …") — para você saber qual
+  número vigiar em cada negócio. Margem que vira negativa num choque
+  isolado vira risk flag; o ranking completo sai no CSV
+  (`sensitivity_top`) e no memorando.
 - **Divergência de ARV** (`arv.divergence_warn_pct`): quando o ARV dos comps
   diverge mais de 15% da premissa fixa, a oportunidade ganha a atenção
   "conferir comps" — divergência grande significa incerteza no número mais
@@ -422,18 +458,20 @@ Todos esses números são **seus** — edite `config.yaml`.
 
 ---
 
-## Transformar isto num repositório próprio
+## Guia rápido do dia a dia
 
-Quando quiser separar este projeto num repositório dedicado:
+1. **Chegou alerta "Oportunidade" no WhatsApp** → abra o link do memorando
+   (recomendação pronta) e o link da Regrid (dono da parcela, logada na conta
+   Pro). Se fizer sentido, aja rápido — a vantagem é ser a primeira.
+2. **Chegou alerta "Radar"** → tem pendência (zoneamento, análise manual).
+   NÃO oferte antes de resolver o que a mensagem aponta; use como alavanca de
+   negociação.
+3. **Silêncio o dia todo** → normal: nada passou nos filtros. O resumo das 8h
+   confirma que o sistema rodou (varreduras, avaliados, radar).
+4. **Comparar duas oportunidades** → seção "Comparador" no dashboard.
+5. **Calibrar a fórmula** → tudo em `config.yaml` (custos, margem alvo,
+   premissas de renda, choques de estresse). Edite, faça commit, e a próxima
+   rodada já usa os números novos.
 
-```bash
-# 1. Crie um repo vazio no GitHub (ex.: orlando-land-detector)
-# 2. A partir desta pasta:
-cd orlando-land-detector
-git init
-git add .
-git commit -m "Initial commit: Orlando land detector"
-git branch -M main
-git remote add origin https://github.com/gchohfi/orlando-land-detector.git
-git push -u origin main
-```
+Para instruções de arquitetura, decisões técnicas e convenções do projeto
+(para futuras sessões de IA ou colaboradores), veja o **`CLAUDE.md`**.
