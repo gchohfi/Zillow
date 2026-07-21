@@ -42,6 +42,14 @@ def _recommendation(status: str, risk_flags: str) -> tuple[str, str, str]:
             "Retorno acima do alvo com riscos mapeados. Confirmar em campo os "
             "itens de atenção antes de ofertar.",
         )
+    if status == "radar_desenvolvimento":
+        return (
+            "ESTUDAR COMO DESENVOLVIMENTO",
+            "hold",
+            "Lote grande: a fórmula de casa única NÃO se aplica. O valor está "
+            "no potencial de múltiplas unidades ou land banking — analise por "
+            "preço/acre, densidade permitida e custo de infraestrutura.",
+        )
     if status.startswith("radar"):
         return (
             "NEGOCIAR / VERIFICAR",
@@ -72,8 +80,38 @@ def build_memo_html(row: dict, generated_at: str | None = None) -> str:
     def li(items: list[str]) -> str:
         return "".join(f"<li>{html.escape(item.strip())}</li>" for item in items) or "<li>—</li>"
 
+    # Lote de desenvolvimento: métricas de casa única (margem, ARV, renda,
+    # sensibilidade) seriam enganosas — mostra a base de terra em vez delas.
+    is_development = status == "radar_desenvolvimento"
+    numbers_block = f"""
+  <h2>Números-base (spec build)</h2>
+  <table>
+    <tr><td>Terreno (preço pedido)</td><td>{_money(row.get('land_price'))}</td></tr>
+    <tr><td>Investimento total</td><td>{_money(row.get('total_cost'))}</td></tr>
+    <tr><td>ARV ({html.escape(str(row.get('arv_source') or 'premissa'))})</td><td>{_money(row.get('arv'))}</td></tr>
+    <tr><td>Lucro estimado</td><td>{_money(row.get('profit'))}</td></tr>
+    <tr><td>Margem</td><td>{_pct(row.get('margin'))}</td></tr>
+    <tr><td>Margem no pessimista</td><td>{_pct(row.get('margin_stress'))}</td></tr>
+    <tr><td>Terreno / investimento</td><td>{_pct(row.get('land_to_total_investment'))}</td></tr>
+    __FLOOD__
+  </table>"""
+    if is_development:
+        acres = row.get("lot_size_acres")
+        acres_txt = f"{float(acres):,.2f} acres" if acres not in (None, "") else "n/d"
+        numbers_block = f"""
+  <h2>Números do lote (desenvolvimento)</h2>
+  <table>
+    <tr><td>Preço pedido</td><td>{_money(row.get('land_price'))}</td></tr>
+    <tr><td>Área</td><td>{acres_txt}</td></tr>
+    <tr><td>Preço por acre</td><td>{_money(row.get('price_per_acre'))}</td></tr>
+    __FLOOD__
+  </table>
+  <p class="meta">A conta de casa única não se aplica a este lote — próxima
+  etapa: densidade permitida pelo zoneamento × preço por lote acabado na
+  região, menos custo de infraestrutura (ruas, utilities, drenagem).</p>"""
+
     rent_block = ""
-    if row.get("rent_monthly"):
+    if not is_development and row.get("rent_monthly"):
         rent_block = f"""
   <h2>Lente de renda (buy &amp; hold)</h2>
   <table>
@@ -87,7 +125,7 @@ def build_memo_html(row: dict, generated_at: str | None = None) -> str:
     sensitivity = str(row.get("sensitivity_top") or "")
     sensitivity_block = (
         f"<h2>Sensibilidade — o que vigiar</h2><ul>{li(sensitivity.split(';'))}</ul>"
-        if sensitivity else ""
+        if sensitivity and not is_development else ""
     )
 
     flood = str(row.get("flood_zone") or "")
@@ -138,18 +176,7 @@ def build_memo_html(row: dict, generated_at: str | None = None) -> str:
 
   <h2>Tese de investimento</h2>
   <p>{html.escape(str(row.get('market_strategies') or 'Spec build: comprar terreno, construir e vender.'))}</p>
-
-  <h2>Números-base (spec build)</h2>
-  <table>
-    <tr><td>Terreno (preço pedido)</td><td>{_money(row.get('land_price'))}</td></tr>
-    <tr><td>Investimento total</td><td>{_money(row.get('total_cost'))}</td></tr>
-    <tr><td>ARV ({html.escape(str(row.get('arv_source') or 'premissa'))})</td><td>{_money(row.get('arv'))}</td></tr>
-    <tr><td>Lucro estimado</td><td>{_money(row.get('profit'))}</td></tr>
-    <tr><td>Margem</td><td>{_pct(row.get('margin'))}</td></tr>
-    <tr><td>Margem no pessimista</td><td>{_pct(row.get('margin_stress'))}</td></tr>
-    <tr><td>Terreno / investimento</td><td>{_pct(row.get('land_to_total_investment'))}</td></tr>
-    {flood_line}
-  </table>
+  {numbers_block.replace('__FLOOD__', flood_line)}
   {rent_block}
   {sensitivity_block}
 
