@@ -33,6 +33,7 @@ def _write_evaluations(tmp_path, rows):
         "arv_comps_count", "arv_confidence", "total_cost",
         "purchase_closing_cost", "contingency_cost", "profit", "margin",
         "land_to_total_investment", "land_to_arv", "zoning", "url",
+        "lot_size_acres", "price_per_acre",
     ]
     with open(tmp_path / "evaluations.csv", "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
@@ -192,3 +193,23 @@ def test_dashboard_includes_compare_section(tmp_path):
     assert "tbl-compare" in html
     assert "renderCompare" in html
     assert "Comparador" in html
+
+
+def test_development_memo_shows_land_basis_not_spec_math(tmp_path):
+    fields_extra = {"lot_size_acres": "6.18", "price_per_acre": "121359",
+                    "margin": "-3.307", "land_price": "750000"}
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "is_viable": "no",
+         "review_status": "radar_desenvolvimento", "id": "dev-1",
+         "address": "15525 Villa City Rd, Groveland, FL 34736",
+         "lat": "28.6", "lng": "-81.8", **fields_extra},
+    ])
+
+    index = generate_site(_cfg(tmp_path))
+    memo = (index.parent / "memo" / "dev-1.html").read_text(encoding="utf-8")
+
+    assert "ESTUDAR COMO DESENVOLVIMENTO" in memo
+    assert "Preço por acre" in memo
+    assert "6.18 acres" in memo
+    assert "Números-base (spec build)" not in memo
+    assert "-330" not in memo  # margem de casa única não aparece

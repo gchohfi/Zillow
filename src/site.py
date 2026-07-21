@@ -995,8 +995,11 @@ const COMPARE_LIMIT = 12;
 
 function renderCompare() {
   const el = document.getElementById("tbl-compare");
+  // Lotes de desenvolvimento ficam de fora: a base deles é preço/acre e
+  // densidade, não a margem de casa única — comparar seria enganoso.
   const open = rows
     .filter(r => r.review_status === "viavel" || r.review_status.startsWith("radar"))
+    .filter(r => r.review_status !== "radar_desenvolvimento")
     .filter(r => !dismissed.has(r.id))
     .sort((a, b) => (b.margin || -1) - (a.margin || -1))
     .slice(0, COMPARE_LIMIT);
