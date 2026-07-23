@@ -95,15 +95,12 @@ jobs:
       - name: Check required secrets
         shell: bash
         run: |
-          missing=0
           if [ -z "${RENTCAST_API_KEY:-}" ]; then
-            echo "::error::Configure o secret RENTCAST_API_KEY em Settings > Secrets and variables > Actions."
-            missing=1
+            echo "::warning::RENTCAST_API_KEY não configurada; configure o secret em Settings > Secrets and variables > Actions para habilitar buscas reais."
           fi
           if [ -z "${ZAPI_INSTANCE_ID:-}" ] || [ -z "${ZAPI_INSTANCE_TOKEN:-}" ] || [ -z "${ZAPI_PHONE:-}" ]; then
-            echo "::warning::Secrets da Z-API incompletos; o scanner pode rodar, mas WhatsApp nao sera enviado."
+            echo "::warning::Secrets da Z-API incompletos; o scanner pode rodar, mas WhatsApp não será enviado."
           fi
-          exit "$missing"
 
       - name: Set dashboard URL
         shell: bash
