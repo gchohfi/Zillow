@@ -201,13 +201,18 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
     status_label = {
         "radar_zoneamento_pendente": "Radar - zoneamento pendente",
         "radar_analise_manual": "Radar - analise manual",
+        "radar_desenvolvimento": "Radar - desenvolvimento imobiliario",
     }.get(r.review_status, "Radar - revisar")
 
     attention = [reason for reason in r.reasons if reason.startswith(("✗", "⚠"))]
     lines = [
         "Radar Orlando Land",
         status_label,
-        "NAO OFERTAR antes de confirmar zoneamento/county GIS.",
+        (
+            "NAO OFERTAR antes de confirmar area liquida, acesso, utilities e entitlement."
+            if r.review_status == "radar_desenvolvimento"
+            else "NAO OFERTAR antes de confirmar zoneamento/county GIS."
+        ),
         "",
         address,
         f"Motivo: {r.review_reason or 'revisar diligencia'}",
@@ -226,6 +231,27 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.review_status == "radar_desenvolvimento":
+        lines.extend([
+            f"Perfil: {r.development_profile or 'desenvolvimento'}",
+            f"Area bruta: {r.gross_acres or (listing.lot_size_sqft or 0) / 43_560:.1f} acres",
+            "Area liquida preliminar: " + (
+                f"{r.estimated_net_developable_acres:.1f} acres "
+                f"({r.net_estimate_confidence} confianca)"
+                if r.estimated_net_developable_acres is not None else "nao calculada"
+            ),
+            f"Diligencia: {(r.due_diligence_completion_pct or 0):.0%} confirmada",
+            f"Recomendacao: {r.due_diligence_recommendation or 'hold'}",
+            "Preco/acre liquido: " + (
+                f"US$ {r.price_per_net_acre:,.0f}"
+                if r.price_per_net_acre is not None else "nao calculado"
+            ),
+            f"Entitlement: {r.entitlement_stage or 'nao confirmado'}",
+        ])
+        if r.pending_confirmations:
+            lines.append(f"Confirmar: {'; '.join(r.pending_confirmations)}")
+        if r.rules_as_of:
+            lines.append(f"Regra/fonte datada: {r.rules_as_of}")
     if r.growth_score is not None:
         lines.append(f"Crescimento regiao: {r.growth_score:.1f}/10")
         summary = r.growth_signals.get("summary", [])

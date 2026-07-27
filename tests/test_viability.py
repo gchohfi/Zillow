@@ -6,7 +6,7 @@ from src.config import Config
 from src.datasource import MockDataSource
 from src.geo import haversine_km, within_radius
 from src.models import Listing
-from src.viability import evaluate
+from src.viability import evaluate, resolve_county
 
 
 def _cfg() -> Config:
@@ -52,6 +52,38 @@ def test_haversine_orlando_to_tampa():
 def test_within_radius():
     inside, dist = within_radius(28.5384, -81.3789, 28.41, -81.50, 180)
     assert inside and dist < 30
+
+
+def test_county_uses_parcel_source_before_zip_and_maps_titusville():
+    cfg = _cfg()
+    cfg.raw["county_costs"] = {
+        "counties": {"orange": {"impact_fees": 25_000}, "brevard": {}},
+        "zip_to_county": {"32827": "orange", "32780": "brevard"},
+    }
+
+    titusville = Listing(
+        id="titusville",
+        price=50_000,
+        lat=28.51,
+        lng=-80.84,
+        address="2929 Long Lake Dr, Titusville, FL 32780",
+        zoning="residential",
+    )
+    county, costs = resolve_county(titusville, cfg)
+    assert county == "brevard"
+    assert costs == {}
+    assert evaluate(titusville, cfg).county == "brevard"
+
+    # Dado parcelar específico prevalece sobre o ZIP.
+    parcel_county = Listing(
+        id="parcel-county",
+        price=50_000,
+        lat=28.51,
+        lng=-80.84,
+        address="Orlando, FL 32827",
+        raw={"_parcel_data": {"county_name": "Brevard County"}},
+    )
+    assert resolve_county(parcel_county, cfg)[0] == "brevard"
 
 
 def test_cheap_lot_is_viable():

@@ -78,12 +78,26 @@ def _merged(base: dict, override: dict | None) -> dict:
 
 
 def resolve_county(listing: Listing, cfg: Config) -> tuple[str, dict]:
-    """County da listagem (via ZIP) e os overrides de custo dele, se houver."""
+    """County da parcela/Regrid ou ZIP e os overrides de custo, se houver."""
     section = cfg.raw.get("county_costs", {})
     counties = section.get("counties") or {}
     zip_map = section.get("zip_to_county") or {}
-    if not counties or not zip_map:
-        return "", {}
+
+    # Quando Regrid/GIS informou o county, essa fonte é mais específica que
+    # inferência por ZIP (alguns ZIPs atravessam limites administrativos).
+    raw = listing.raw or {}
+    parcel = raw.get("_parcel_data")
+    sources = [parcel, raw] if isinstance(parcel, dict) else [raw]
+    for data in sources:
+        for field in ("county", "county_name", "countyname", "cntyname"):
+            value = data.get(field)
+            if value in (None, "") or str(value).strip().isdigit():
+                continue
+            county = str(value).strip().lower()
+            if county.endswith(" county"):
+                county = county[:-7].strip()
+            return county, dict(counties.get(county) or {})
+
     zip_code = extract_zip(listing)
     county = str(zip_map.get(zip_code or "") or "")
     if not county:
@@ -375,6 +389,7 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
             "⚠ segmento exige análise manual de localização/bairro antes de virar alerta"
         )
 
+    county, _ = resolve_county(listing, cfg)
     return ViabilityResult(
         listing=listing,
         arv=arv,
@@ -404,6 +419,7 @@ def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
         flood_zone=str(listing.raw.get("_flood_zone") or ""),
         flood_high_risk=flood_high_risk,
         zip_code=market["zip_code"],
+        county=county,
         market_region=market["region"],
         market_priority=market["priority"],
         market_score=market["score"],

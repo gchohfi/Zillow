@@ -418,6 +418,12 @@ multifamily, BTR, townhomes ou land banking. Zoneamentos explicitamente ligados
 a conservação ou wetland continuam bloqueados, e o Radar nunca equivale a uma
 aprovação automática.
 
+Para esses terrenos, o CSV, os alertas e o painel também mostram área bruta,
+três cenários de área líquida preliminar, preço por acre líquido, ficha do
+parcel, estágio de entitlement, evidências, pendências e a recomendação
+`avancar`, `avancar_com_condicoes`, `hold` ou `descartar`. A metodologia e as
+fontes oficiais estão em [docs/DUE_DILIGENCE_TERRENOS.md](docs/DUE_DILIGENCE_TERRENOS.md).
+
 Além disso:
 
 - **Preparação do lote e impact fees** entram na conta por segmento
