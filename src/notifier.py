@@ -197,6 +197,7 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         "radar_zoneamento_pendente": "Radar - zoneamento pendente",
         "radar_analise_manual": "Radar - analise manual",
         "radar_valorizacao": "Radar - valorizacao / negociar preco",
+        "radar_desenvolvimento": "Radar - desenvolvimento imobiliario",
     }.get(r.review_status, "Radar - revisar")
 
     attention = [reason for reason in r.reasons if reason.startswith(("✗", "⚠"))]
@@ -206,7 +207,11 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         (
             "NEGOCIAR ate o preco-alvo e concluir due diligence antes de ofertar."
             if r.review_status == "radar_valorizacao"
-            else "NAO OFERTAR antes de confirmar zoneamento/county GIS."
+            else (
+                "NAO OFERTAR antes de confirmar area liquida, acesso, utilities e entitlement."
+                if r.review_status == "radar_desenvolvimento"
+                else "NAO OFERTAR antes de confirmar zoneamento/county GIS."
+            )
         ),
         "",
         address,
@@ -227,6 +232,27 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Preco maximo p/ margem-alvo: US$ {r.max_supported_land_price:,.0f}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.review_status == "radar_desenvolvimento":
+        lines.extend([
+            f"Perfil: {r.development_profile or 'desenvolvimento'}",
+            f"Area bruta: {r.gross_acres or (listing.lot_size_sqft or 0) / 43_560:.1f} acres",
+            "Area liquida estimada: " + (
+                f"{r.estimated_net_developable_acres:.1f} acres "
+                f"({r.net_estimate_confidence} confianca)"
+                if r.estimated_net_developable_acres is not None else "nao calculada"
+            ),
+            f"Diligencia: {(r.due_diligence_completion_pct or 0):.0%} confirmada",
+            f"Recomendacao: {r.due_diligence_recommendation or 'hold'}",
+            "Preco/acre liquido: " + (
+                f"US$ {r.price_per_net_acre:,.0f}"
+                if r.price_per_net_acre is not None else "nao calculado"
+            ),
+            f"Entitlement: {r.entitlement_stage or 'nao confirmado'}",
+        ])
+        if r.pending_confirmations:
+            lines.append(f"Confirmar: {'; '.join(r.pending_confirmations)}")
+        if r.rules_as_of:
+            lines.append(f"Regra/fonte datada: {r.rules_as_of}")
     if r.appreciation_score is not None:
         lines.append(
             f"Valorizacao: {r.appreciation_score:.1f}/10 ({r.appreciation_label}) - "

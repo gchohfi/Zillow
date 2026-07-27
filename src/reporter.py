@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .config import Config
 from .models import ViabilityResult
 
 _COLUMNS = [
@@ -15,6 +16,7 @@ _COLUMNS = [
     "review_reason",
     "tier",
     "zip_code",
+    "county",
     "market_priority",
     "market_region",
     "market_score",
@@ -40,6 +42,30 @@ _COLUMNS = [
     "lot_size_sqft",
     "lot_size_acres",
     "price_per_acre",
+    "development_profile",
+    "gross_acres",
+    "estimated_net_developable_acres",
+    "net_developable_pct",
+    "net_estimate_confidence",
+    "due_diligence_status",
+    "due_diligence_completion_pct",
+    "due_diligence_recommendation",
+    "evidence_status",
+    "pending_confirmations",
+    "entitlement_stage",
+    "rules_as_of",
+    "parcel_id",
+    "owner_name",
+    "jurisdiction",
+    "future_land_use",
+    "electric_utility",
+    "water_utility",
+    "sewer_utility",
+    "access_authority",
+    "environmental_authority",
+    "sources_consulted",
+    "net_area_scenarios",
+    "price_per_net_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -66,6 +92,7 @@ _EVALUATION_COLUMNS = [
     "review_reason",
     "tier",
     "zip_code",
+    "county",
     "market_priority",
     "market_region",
     "market_score",
@@ -92,6 +119,30 @@ _EVALUATION_COLUMNS = [
     "lot_size_sqft",
     "lot_size_acres",
     "price_per_acre",
+    "development_profile",
+    "gross_acres",
+    "estimated_net_developable_acres",
+    "net_developable_pct",
+    "net_estimate_confidence",
+    "due_diligence_status",
+    "due_diligence_completion_pct",
+    "due_diligence_recommendation",
+    "evidence_status",
+    "pending_confirmations",
+    "entitlement_stage",
+    "rules_as_of",
+    "parcel_id",
+    "owner_name",
+    "jurisdiction",
+    "future_land_use",
+    "electric_utility",
+    "water_utility",
+    "sewer_utility",
+    "access_authority",
+    "environmental_authority",
+    "sources_consulted",
+    "net_area_scenarios",
+    "price_per_net_acre",
     "arv",
     "arv_source",
     "arv_comps_count",
@@ -112,7 +163,11 @@ _EVALUATION_COLUMNS = [
 ]
 
 
-def _ensure_header(csv_path: str, fieldnames: list[str]) -> bool:
+def _ensure_header(
+    csv_path: str,
+    fieldnames: list[str],
+    cfg: Config | None = None,
+) -> bool:
     """Return True when a new header must be written; migrate old headers."""
     parent = Path(csv_path).expanduser().parent
     if str(parent) not in ("", "."):
@@ -132,7 +187,11 @@ def _ensure_header(csv_path: str, fieldnames: list[str]) -> bool:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fieldnames})
+            migrated = {field: row.get(field, "") for field in fieldnames}
+            if cfg is not None and not migrated.get("county"):
+                zip_map = cfg.raw.get("county_costs", {}).get("zip_to_county", {})
+                migrated["county"] = str(zip_map.get(str(row.get("zip_code") or "")) or "")
+            writer.writerow(migrated)
     return False
 
 
@@ -145,6 +204,7 @@ def _base_row(r: ViabilityResult, found_at: str) -> dict[str, object]:
         "review_reason": r.review_reason,
         "tier": r.tier,
         "zip_code": r.zip_code or "",
+        "county": r.county,
         "market_priority": r.market_priority,
         "market_region": r.market_region,
         "market_score": f"{r.market_score:.1f}",
@@ -187,6 +247,44 @@ def _base_row(r: ViabilityResult, found_at: str) -> dict[str, object]:
             "" if not listing.lot_size_sqft
             else round(r.land_cost / (listing.lot_size_sqft / 43_560))
         ),
+        "development_profile": r.development_profile,
+        "gross_acres": "" if r.gross_acres is None else f"{r.gross_acres:.2f}",
+        "estimated_net_developable_acres": (
+            "" if r.estimated_net_developable_acres is None
+            else f"{r.estimated_net_developable_acres:.2f}"
+        ),
+        "net_developable_pct": (
+            "" if r.net_developable_pct is None else f"{r.net_developable_pct:.3f}"
+        ),
+        "net_estimate_confidence": r.net_estimate_confidence,
+        "due_diligence_status": r.due_diligence_status,
+        "due_diligence_completion_pct": (
+            "" if r.due_diligence_completion_pct is None
+            else f"{r.due_diligence_completion_pct:.3f}"
+        ),
+        "due_diligence_recommendation": r.due_diligence_recommendation,
+        "evidence_status": "; ".join(
+            f"{key}={value}" for key, value in r.evidence_status.items()
+        ),
+        "pending_confirmations": "; ".join(r.pending_confirmations),
+        "entitlement_stage": r.entitlement_stage,
+        "rules_as_of": r.rules_as_of,
+        "parcel_id": r.parcel_id,
+        "owner_name": r.owner_name,
+        "jurisdiction": r.jurisdiction,
+        "future_land_use": r.future_land_use,
+        "electric_utility": r.electric_utility,
+        "water_utility": r.water_utility,
+        "sewer_utility": r.sewer_utility,
+        "access_authority": r.access_authority,
+        "environmental_authority": r.environmental_authority,
+        "sources_consulted": "; ".join(r.sources_consulted),
+        "net_area_scenarios": "; ".join(
+            f"{name}={value:.2f}" for name, value in r.net_area_scenarios.items()
+        ),
+        "price_per_net_acre": (
+            "" if r.price_per_net_acre is None else round(r.price_per_net_acre)
+        ),
         "arv": round(r.arv),
         "arv_source": r.arv_source,
         "arv_comps_count": r.arv_comps_count or "",
@@ -207,12 +305,16 @@ def _base_row(r: ViabilityResult, found_at: str) -> dict[str, object]:
     }
 
 
-def append_results(results: list[ViabilityResult], csv_path: str) -> None:
+def append_results(
+    results: list[ViabilityResult],
+    csv_path: str,
+    cfg: Config | None = None,
+) -> None:
     """Acrescenta as oportunidades viáveis ao CSV (cria com cabeçalho se novo)."""
     if not results:
         return
 
-    is_new = _ensure_header(csv_path, _COLUMNS)
+    is_new = _ensure_header(csv_path, _COLUMNS, cfg=cfg)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:
@@ -224,12 +326,16 @@ def append_results(results: list[ViabilityResult], csv_path: str) -> None:
     print(f"[csv] {len(results)} oportunidade(s) acrescentada(s) em {csv_path}")
 
 
-def append_evaluations(results: list[ViabilityResult], csv_path: str) -> None:
+def append_evaluations(
+    results: list[ViabilityResult],
+    csv_path: str,
+    cfg: Config | None = None,
+) -> None:
     """Append every newly evaluated listing to a CSV for dashboard/debugging."""
     if not results:
         return
 
-    is_new = _ensure_header(csv_path, _EVALUATION_COLUMNS)
+    is_new = _ensure_header(csv_path, _EVALUATION_COLUMNS, cfg=cfg)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:

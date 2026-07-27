@@ -2,6 +2,7 @@
 
 import csv
 
+from src.config import Config
 from src.models import Listing, ViabilityResult
 from src.reporter import append_evaluations, append_results
 
@@ -68,3 +69,24 @@ def test_append_csvs_create_parent_directories_and_share_core_fields(tmp_path):
         assert opportunity[field] == evaluation[field]
     assert evaluation["is_viable"] == "yes"
     assert evaluation["reasons"] == "ok"
+
+
+def test_header_migration_backfills_county_from_zip(tmp_path):
+    path = tmp_path / "evaluations.csv"
+    _write_fields = ["found_at", "zip_code", "address"]
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_write_fields)
+        writer.writeheader()
+        writer.writerow({
+            "found_at": "2026-07-24T07:49:36+00:00",
+            "zip_code": "32780",
+            "address": "2929 Long Lake Dr, Titusville, FL 32780",
+        })
+
+    cfg = Config(raw={
+        "county_costs": {"zip_to_county": {"32780": "brevard"}},
+    })
+    append_evaluations([_result()], str(path), cfg=cfg)
+
+    rows = _rows(path)
+    assert rows[0]["county"] == "brevard"

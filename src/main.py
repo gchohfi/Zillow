@@ -16,6 +16,7 @@ from .red_flags import apply_red_flags
 from .region_signals import SignalsCache, get_region_signals, prefetch_config_zips
 from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
+from .due_diligence import assess_due_diligence
 from .storage import SeenStore
 from .viability import evaluate
 from .zoning import ZoningCache, enrich_zoning
@@ -141,10 +142,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
                     n_unavailable += 1
                     continue
 
-            if zoning_cache is not None and not listing.zoning:
+            if zoning_cache is not None:
+                had_zoning = bool(listing.zoning)
                 zoning_note = enrich_zoning(listing, cfg, cache=zoning_cache)
                 if zoning_note:
                     availability_reasons.append(zoning_note)
+                if zoning_note and not had_zoning and listing.zoning:
                     n_zoning_confirmed += 1
 
             if not use_mock:
@@ -159,6 +162,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             result.reasons.extend(availability_reasons)
             if not use_mock:
                 apply_red_flags(result, cfg)
+            assess_due_diligence(result, cfg)
             # Valorização precisa entrar antes da classificação: near misses
             # financeiros em regiões fortes podem virar Radar de negociação.
             if signals_cache is not None:
@@ -190,10 +194,10 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         # Grava as oportunidades viáveis na planilha CSV.
         csv_path = cfg.raw.get("output", {}).get("csv_path")
         if csv_path and viable_new:
-            append_results(viable_new, csv_path)
+            append_results(viable_new, csv_path, cfg=cfg)
         evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
         if evaluations_csv_path and evaluated_results:
-            append_evaluations(evaluated_results, evaluations_csv_path)
+            append_evaluations(evaluated_results, evaluations_csv_path, cfg=cfg)
 
         notify(viable_new, dry_run=dry_run)
         radar_cfg = cfg.raw.get("radar", {})

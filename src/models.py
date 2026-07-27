@@ -59,6 +59,7 @@ class ViabilityResult:
     arv_comps_count: Optional[int] = None
     arv_confidence: Optional[str] = None
     zip_code: Optional[str] = None
+    county: str = ""
     market_region: str = ""
     market_priority: str = ""
     market_score: float = 0
@@ -76,3 +77,27 @@ class ViabilityResult:
     appreciation_label: str = ""
     appreciation_factors: list[str] = field(default_factory=list)
     county_projection_growth_pct: Optional[float] = None
+    development_profile: str = ""
+    gross_acres: Optional[float] = None
+    estimated_net_developable_acres: Optional[float] = None
+    net_developable_pct: Optional[float] = None
+    net_estimate_confidence: str = ""
+    due_diligence_status: str = ""
+    due_diligence_completion_pct: Optional[float] = None
+    evidence_status: dict[str, str] = field(default_factory=dict)
+    pending_confirmations: list[str] = field(default_factory=list)
+    entitlement_stage: str = ""
+    rules_as_of: str = ""
+    parcel_id: str = ""
+    owner_name: str = ""
+    jurisdiction: str = ""
+    future_land_use: str = ""
+    electric_utility: str = ""
+    water_utility: str = ""
+    sewer_utility: str = ""
+    access_authority: str = ""
+    environmental_authority: str = ""
+    sources_consulted: list[str] = field(default_factory=list)
+    net_area_scenarios: dict[str, float] = field(default_factory=dict)
+    price_per_net_acre: Optional[float] = None
+    due_diligence_recommendation: str = ""

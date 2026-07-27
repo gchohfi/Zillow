@@ -322,6 +322,10 @@ def lookup_zoning(
         key = ZoningCache.key_for(listing.lat, listing.lng)
         cached = cache.get(key, max_age_days)
         if cached is not None:
+            parcel_data = cached.get("parcel_data")
+            if isinstance(parcel_data, dict):
+                listing.raw.setdefault("_parcel_data", {}).update(parcel_data)
+                listing.raw["_parcel_source"] = cached.get("source", "cache")
             if cached.get("zoning"):
                 return cached.get("zoning"), cached.get("note")
             # Falha recente cacheada: não martela GIS indisponível a cada
@@ -330,6 +334,8 @@ def lookup_zoning(
                 return None, None
 
         county, _ = resolve_county(listing, cfg)
+        last_parcel_data: dict[str, Any] | None = None
+        last_parcel_source = ""
         for source in section.get("sources", []):
             name = source.get("name", "gis")
             source_type = source.get("type", "arcgis")
@@ -366,6 +372,13 @@ def lookup_zoning(
                 # área fora da cobertura da fonte): registra para diagnóstico.
                 print(f"  [aviso] GIS {name}: sem parcela no ponto")
                 continue
+            # Preserva os atributos da parcela para a triagem de área líquida,
+            # acesso, utilities e entitlement. A lista de campos varia por
+            # plano/provedor, por isso mantemos o payload sem inventar valores.
+            listing.raw.setdefault("_parcel_data", {}).update(attrs)
+            listing.raw["_parcel_source"] = name
+            last_parcel_data = dict(listing.raw["_parcel_data"])
+            last_parcel_source = name
             for field in fields:
                 value = attrs.get(field)
                 if value in (None, ""):
@@ -378,11 +391,23 @@ def lookup_zoning(
                 if owner:
                     # Dono da parcela (Regrid): abre a porta do contato direto.
                     note += f" · dono: {owner}"
-                cache.put(key, {"zoning": label, "note": note})
+                cache.put(key, {
+                    "zoning": label,
+                    "note": note,
+                    "parcel_data": attrs,
+                    "source": name,
+                })
                 return label, note
 
+            # A fonte respondeu com dados úteis, mesmo sem um campo de zoning.
+            # Guarda-os para due diligence e tenta a próxima fonte para zoning.
         # Nada respondeu: registra a falha para poupar as próximas rodadas.
-        cache.put(key, {"zoning": None, "note": None})
+        cache.put(key, {
+            "zoning": None,
+            "note": None,
+            "parcel_data": last_parcel_data,
+            "source": last_parcel_source,
+        })
         return None, None
     finally:
         if own_cache:
@@ -393,9 +418,10 @@ def enrich_zoning(
     listing: Listing, cfg: Config, cache: ZoningCache | None = None
 ) -> str | None:
     """Preenche listing.zoning quando ausente; retorna a nota de proveniência."""
-    if listing.zoning:
-        return None
+    had_zoning = bool(listing.zoning)
     zoning, note = lookup_zoning(listing, cfg, cache=cache)
-    if zoning:
+    if zoning and not listing.zoning:
         listing.zoning = zoning
-    return note
+    # Com zoning já preenchido, ainda consultamos/restauramos os atributos da
+    # parcela para due diligence, mas não anunciamos uma confirmação redundante.
+    return None if had_zoning else note
