@@ -57,7 +57,34 @@ def test_unknown_zoning_with_good_numbers_becomes_radar():
 
     assert not result.is_viable
     assert result.review_status == "radar_zoneamento_pendente"
-    assert "zoneamento" in result.review_reason
+    assert "zoning legal" in result.review_reason
+
+
+def test_cadastral_residential_evidence_prioritizes_radar_without_approving():
+    cfg = _cfg()
+    lot = Listing(
+        id="cadastral-residential",
+        price=95_000,
+        lat=28.41,
+        lng=-81.50,
+        lot_size_sqft=8000,
+        zoning=None,
+        raw={
+            "_cadastral_use": "vacant residential",
+            "_cadastral_use_code": "000",
+            "_cadastral_use_source": "fl_parcelas_estaduais",
+            "_cadastral_use_status": "indicativo",
+        },
+    )
+
+    result = evaluate(lot, cfg)
+    classify_review_status(result, cfg)
+
+    assert not result.is_viable
+    assert result.review_status == "radar_zoneamento_pendente"
+    assert "uso cadastral residencial indicativo" in result.review_reason
+    assert "confirmar zoning legal" in result.review_reason
+    assert any("não confirma zoning legal" in reason for reason in result.reasons)
 
 
 def test_bad_numbers_do_not_become_radar_even_with_unknown_zoning():

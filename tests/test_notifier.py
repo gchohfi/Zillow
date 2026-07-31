@@ -132,6 +132,10 @@ def test_whatsapp_radar_result_marks_manual_review_not_green_light():
     result.review_status = "radar_zoneamento_pendente"
     result.review_reason = "numeros bons; falta confirmar zoneamento"
     result.reasons = ["✗ zoneamento desconhecido; exige conferência antes do alerta"]
+    result.cadastral_use = "vacant residential"
+    result.cadastral_use_code = "000"
+    result.cadastral_use_source = "fl_parcelas_estaduais"
+    result.cadastral_use_status = "indicativo"
 
     message = _format_whatsapp_radar_result(result)
 
@@ -139,6 +143,10 @@ def test_whatsapp_radar_result_marks_manual_review_not_green_light():
     assert "Radar - zoneamento pendente" in message
     assert "NAO OFERTAR antes de confirmar zoneamento/county GIS." in message
     assert "Motivo: numeros bons; falta confirmar zoneamento" in message
+    assert (
+        "Uso cadastral (INDICATIVO): vacant residential (000) "
+        "via fl_parcelas_estaduais; confirmar zoning legal"
+    ) in message
     assert "Zillow manual: https://www.zillow.com/homes/121+Central" in message
     assert "Regrid (dono/zoneamento): https://app.regrid.com/map#ll=" in message
 

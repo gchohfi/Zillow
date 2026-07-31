@@ -30,6 +30,11 @@ _ROW_FIELDS = (
     "is_viable",
     "tier",
     "zip_code",
+    "county",
+    "cadastral_use",
+    "cadastral_use_code",
+    "cadastral_use_source",
+    "cadastral_use_status",
     "market_priority",
     "market_region",
     "market_score",
@@ -45,6 +50,30 @@ _ROW_FIELDS = (
     "lot_size_sqft",
     "lot_size_acres",
     "price_per_acre",
+    "development_profile",
+    "gross_acres",
+    "estimated_net_developable_acres",
+    "net_developable_pct",
+    "net_estimate_confidence",
+    "due_diligence_status",
+    "due_diligence_completion_pct",
+    "due_diligence_recommendation",
+    "evidence_status",
+    "pending_confirmations",
+    "entitlement_stage",
+    "rules_as_of",
+    "parcel_id",
+    "owner_name",
+    "jurisdiction",
+    "future_land_use",
+    "electric_utility",
+    "water_utility",
+    "sewer_utility",
+    "access_authority",
+    "environmental_authority",
+    "sources_consulted",
+    "net_area_scenarios",
+    "price_per_net_acre",
     "arv",
     "arv_source",
     "total_cost",
@@ -70,6 +99,8 @@ _FLOAT_FIELDS = {
     "profit", "margin", "margin_stress", "land_to_total_investment",
     "growth_score", "market_score",
     "rent_monthly", "noi_annual", "cap_rate", "dscr", "cash_on_cash",
+    "gross_acres", "estimated_net_developable_acres", "net_developable_pct",
+    "due_diligence_completion_pct", "price_per_net_acre",
 }
 
 
@@ -697,7 +728,10 @@ const rankOf = r => {
   const q = 0.5 * Math.min((r.margin || 0) / 0.25, 1)
           + 0.3 * ((g ? g.score : 0) / 10)
           + 0.2 * ((r.market_score != null ? r.market_score : 0) / 10);
-  return base + q + (isNew(r) ? 0.3 : 0);
+  const cadastralBonus = r.review_status === "radar_zoneamento_pendente"
+    ? (/residential/i.test(r.cadastral_use || "") ? 0.20 : (r.cadastral_use ? 0.05 : 0))
+    : 0;
+  return base + q + cadastralBonus + (isNew(r) ? 0.3 : 0);
 };
 
 const regionByZip = {};
@@ -847,9 +881,15 @@ function oppCard(r) {
   const isDismissed = dismissed.has(r.id);
   const isDevelopment = r.review_status === "radar_desenvolvimento";
   const thesisStats = isDevelopment
-    ? '<div class="stat"><div class="l">área</div><div class="v">' +
-        (r.lot_size_acres == null ? "n/d" : Number(r.lot_size_acres).toFixed(1) + " acres") + "</div></div>" +
-      '<div class="stat"><div class="l">preço/acre</div><div class="v">' + fmtMoney(r.price_per_acre) + "</div></div>"
+    ? '<div class="stat"><div class="l">área bruta</div><div class="v">' +
+        (r.gross_acres == null ? (r.lot_size_acres == null ? "n/d" : Number(r.lot_size_acres).toFixed(1) + " ac") : Number(r.gross_acres).toFixed(1) + " ac") + "</div></div>" +
+      '<div class="stat"><div class="l">líquida preliminar</div><div class="v">' +
+        (r.estimated_net_developable_acres == null ? "n/d" : Number(r.estimated_net_developable_acres).toFixed(1) + " ac") +
+        '</div><div class="small muted">conf. ' + esc(r.net_estimate_confidence || "n/d") + "</div></div>" +
+      '<div class="stat"><div class="l">preço/acre líquido</div><div class="v">' + fmtMoney(r.price_per_net_acre) + "</div></div>" +
+      '<div class="stat"><div class="l">diligência</div><div class="v">' +
+        (r.due_diligence_completion_pct == null ? "n/d" : Math.round(r.due_diligence_completion_pct * 100) + "%") +
+        '</div><div class="small muted">' + esc(r.due_diligence_recommendation || "hold") + "</div></div>"
     : '<div class="stat"><div class="l">lucro est.</div><div class="v">' + fmtMoney(r.profit) + "</div></div>" +
       '<div class="stat"><div class="l">margem</div><div class="v">' + fmtPct(r.margin) +
         (r.margin_stress != null ? '</div><div class="small muted">pess. ' + fmtPct(r.margin_stress) + "</div>" : "</div>") + "</div>";
@@ -867,6 +907,7 @@ function oppCard(r) {
     '<div><div class="opp-title">' + esc(r.address || r.id) + "</div>" +
     '<div class="opp-sub">' + esc(r.market_region || "fora das regiões-alvo") +
       (r.zip_code ? " · ZIP " + esc(r.zip_code) : "") +
+      (r.cadastral_use ? " · uso cadastral: " + esc(r.cadastral_use) + " (indicativo)" : "") +
       (r.tier ? " · " + esc(r.tier) : "") +
       (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
     '<div class="opp-stats">' +
@@ -963,12 +1004,17 @@ const COLS = [
   { h: "Endereço", c: r => "<b>" + esc(r.address || r.id) + "</b>" +
       (r.review_reason && r.kind !== "viavel" ? '<div class="small muted">' + esc(r.review_reason) + "</div>" : "") },
   { h: "ZIP", c: r => esc(r.zip_code) || '<span class="muted">n/d</span>' },
+  { h: "Condado", c: r => esc(r.county) || '<span class="muted">n/d</span>' },
+  { h: "Uso cadastral", c: r => r.cadastral_use ? esc(r.cadastral_use) + '<div class="small muted">indicativo · confirmar zoning</div>' : '<span class="muted">n/d</span>' },
   { h: "Mercado", c: r => esc(r.market_priority) +
       (r.market_region ? '<div class="small muted">' + esc(r.market_region) + "</div>" : "") },
   { h: "Segmento", c: r => esc(r.tier) || '<span class="muted">n/d</span>' },
   { h: "Terreno", c: r => fmtMoney(r.land_price), num: true },
   { h: "Área", c: r => r.lot_size_acres == null ? '<span class="muted">n/d</span>' : Number(r.lot_size_acres).toFixed(2) + " ac", num: true },
+  { h: "Área líquida", c: r => r.estimated_net_developable_acres == null ? '<span class="muted">n/d</span>' : Number(r.estimated_net_developable_acres).toFixed(2) + " ac", num: true },
+  { h: "Diligência", c: r => r.due_diligence_completion_pct == null ? '<span class="muted">n/d</span>' : Math.round(r.due_diligence_completion_pct * 100) + "%", num: true },
   { h: "Preço/acre", c: r => fmtMoney(r.price_per_acre), num: true },
+  { h: "Preço/acre líquido", c: r => fmtMoney(r.price_per_net_acre), num: true },
   { h: "ARV", c: r => fmtMoney(r.arv) +
       (r.arv_source === "rentcast_avm" ? '<div class="small muted">comps</div>' : '<div class="small muted">premissa</div>'), num: true },
   { h: "Lucro", c: r => fmtMoney(r.profit), num: true },

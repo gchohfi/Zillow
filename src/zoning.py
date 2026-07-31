@@ -1,10 +1,8 @@
-"""Confirmação de zoneamento/uso do solo via GIS público (consulta por ponto).
+"""Zoneamento legal e uso cadastral indicativo via GIS/Regrid.
 
-Objetivo: destravar o Radar. Quando a listagem vem sem zoneamento, o sistema
-consulta camadas ArcGIS públicas (por padrão as parcelas estaduais da Flórida,
-com os códigos de uso DOR padronizados) e preenche `listing.zoning` antes da
-avaliação. Com o zoneamento confirmado, a própria regra existente decide:
-residencial → oportunidade viável; comercial/industrial/conservação → reprovada.
+Somente campos explicitamente configurados como zoning legal podem preencher
+`listing.zoning`. DOR_UC, PA_UC, usedesc e landuse são preservados como
+evidência cadastral indicativa e nunca aprovam automaticamente uma compra.
 
 Tudo é *fail-open*: se o GIS falhar, a listagem segue para o Radar como hoje.
 As fontes são dirigidas pelo config (`zoning_lookup.sources`), então dá para
@@ -14,6 +12,7 @@ trocar a URL ou adicionar GIS de county sem mexer em Python.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
@@ -23,13 +22,15 @@ from typing import Any
 import requests
 
 from .config import Config, env
+from .diagnostics import record_source_error
 from .models import Listing
 from .viability import resolve_county
 
 _USER_AGENT = "orlando-land-detector/1.0 (https://github.com/gchohfi/Zillow)"
 
-# Códigos de uso do solo do Florida DOR (dois primeiros dígitos), padronizados
-# no estado inteiro. O rótulo alimenta as regras de zoneamento existentes.
+# Códigos de uso cadastral do Florida DOR. O NAL atual usa três posições
+# (000..099); o formato legado tinha quatro (dois dígitos DOR + dois locais).
+# Estes rótulos são evidência indicativa, nunca zoneamento legal.
 _DOR_PREFIX_LABELS = {
     "00": "vacant residential",
     "01": "single family residential",
@@ -127,6 +128,24 @@ _DOR_PREFIX_LABELS = {
     "98": "utility centrally assessed",
     "99": "non-agricultural acreage",
 }
+
+_DOR_FIELDS = {"DORUC"}
+_DEFAULT_ZONING_FIELDS = {
+    "ZONING",
+    "ZONINGDESCRIPTION",
+    "ZONINGTYPE",
+    "ZONECODE",
+    "ZONEDESC",
+}
+_DEFAULT_CADASTRAL_FIELDS = {
+    "DORUC",
+    "PAUC",
+    "PARUSEDESC",
+    "USEDESC",
+    "USECODE",
+    "LANDUSE",
+}
+_CACHE_SCHEMA_VERSION = 2
 
 
 class ZoningCache:
@@ -233,7 +252,13 @@ def _query_arcgis_point(
         # refaz com todos os campos em vez de falhar — mais lento, mas certo.
         if out_fields != "*":
             return _query_arcgis_point(
-                url, lat, lng, timeout, out_fields="*", retries=retries
+                url,
+                lat,
+                lng,
+                timeout,
+                out_fields="*",
+                retries=retries,
+                radius_m=radius_m,
             )
         raise RuntimeError(str(data["error"]))
     features = data.get("features") or []
@@ -281,20 +306,108 @@ def _query_regrid_point(
     return fields if isinstance(fields, dict) else None
 
 
-def _label_from_value(value: str, prefix_map: dict[str, str]) -> str | None:
-    """Traduz o valor do GIS num rótulo de zoneamento legível.
+def _field_key(field: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(field or "").upper())
 
-    Valores textuais ("VACANT RESIDENTIAL") passam direto; códigos numéricos
-    (DOR use codes) são mapeados pelos dois primeiros dígitos.
-    """
+
+def _label_from_value(
+    value: str,
+    prefix_map: dict[str, str],
+    *,
+    field: str | None = None,
+) -> str | None:
+    """Traduz texto ou DOR_UC sem confundir códigos locais com o padrão DOR."""
     value = str(value).strip()
     if not value:
         return None
-    digits = "".join(ch for ch in value if ch.isdigit())
-    if digits and digits == value.replace(".", ""):
-        prefix = digits[:2].zfill(2) if len(digits) >= 2 else digits.zfill(2)
-        return prefix_map.get(prefix)
+
+    numeric = re.fullmatch(r"(\d+)(?:\.0+)?", value)
+    if numeric:
+        # Sem nome de campo, assume DOR para manter a função testável. Quando
+        # o campo é conhecido, PA_UC/usecode numérico nunca é reinterpretado.
+        if field is not None and _field_key(field) not in _DOR_FIELDS:
+            return None
+        digits = numeric.group(1)
+        if len(digits) <= 2:
+            dor_code = f"{int(digits):02d}"
+        elif len(digits) == 3:
+            number = int(digits)
+            if number > 99:
+                return None
+            dor_code = f"{number:02d}"
+        elif len(digits) == 4:
+            dor_code = digits[:2]
+        else:
+            return None
+        return prefix_map.get(dor_code)
+
+    # Um DOR_UC textual é header/referência ou dado inválido, não descrição.
+    if field is not None and _field_key(field) in _DOR_FIELDS:
+        return None
     return value.lower()
+
+
+def _role_fields(source: dict[str, Any], key: str, defaults: set[str]) -> list[str]:
+    configured = source.get(key)
+    if configured is not None:
+        return [str(field) for field in configured if field]
+    return [
+        str(field)
+        for field in source.get("fields", [])
+        if field and _field_key(str(field)) in defaults
+    ]
+
+
+def _record_cadastral_use(
+    listing: Listing,
+    *,
+    label: str,
+    code: Any,
+    field: str,
+    source: str,
+) -> None:
+    evidence = {
+        "label": label,
+        "code": str(code),
+        "field": field,
+        "source": source,
+        "status": "indicativo",
+    }
+    items = listing.raw.setdefault("_cadastral_use_evidence", [])
+    if evidence not in items:
+        items.append(evidence)
+    # A ordem das fontes define a preferência. Regrid vem antes do fallback DOR.
+    listing.raw.setdefault("_cadastral_use", label)
+    listing.raw.setdefault("_cadastral_use_code", str(code))
+    listing.raw.setdefault("_cadastral_use_field", field)
+    listing.raw.setdefault("_cadastral_use_source", source)
+    listing.raw.setdefault("_cadastral_use_status", "indicativo")
+
+
+def _cache_metadata(listing: Listing) -> dict[str, Any]:
+    return {
+        "cadastral_use": listing.raw.get("_cadastral_use"),
+        "cadastral_use_code": listing.raw.get("_cadastral_use_code"),
+        "cadastral_use_field": listing.raw.get("_cadastral_use_field"),
+        "cadastral_use_source": listing.raw.get("_cadastral_use_source"),
+        "cadastral_use_status": listing.raw.get("_cadastral_use_status"),
+        "cadastral_use_evidence": listing.raw.get("_cadastral_use_evidence", []),
+    }
+
+
+def _restore_cached_metadata(listing: Listing, cached: dict[str, Any]) -> None:
+    mapping = {
+        "cadastral_use": "_cadastral_use",
+        "cadastral_use_code": "_cadastral_use_code",
+        "cadastral_use_field": "_cadastral_use_field",
+        "cadastral_use_source": "_cadastral_use_source",
+        "cadastral_use_status": "_cadastral_use_status",
+        "cadastral_use_evidence": "_cadastral_use_evidence",
+    }
+    for cache_key, raw_key in mapping.items():
+        value = cached.get(cache_key)
+        if value not in (None, "", []):
+            listing.raw[raw_key] = value
 
 
 def lookup_zoning(
@@ -322,14 +435,23 @@ def lookup_zoning(
         key = ZoningCache.key_for(listing.lat, listing.lng)
         cached = cache.get(key, max_age_days)
         if cached is not None:
-            if cached.get("zoning"):
+            parcel_data = cached.get("parcel_data")
+            if isinstance(parcel_data, dict):
+                listing.raw.setdefault("_parcel_data", {}).update(parcel_data)
+                listing.raw["_parcel_source"] = cached.get("source", "cache")
+            _restore_cached_metadata(listing, cached)
+            cache_is_current = cached.get("schema_version") == _CACHE_SCHEMA_VERSION
+            if cache_is_current and cached.get("zoning_kind") == "legal" and cached.get("zoning"):
                 return cached.get("zoning"), cached.get("note")
             # Falha recente cacheada: não martela GIS indisponível a cada
-            # rodada; tenta de novo depois da janela de retry.
-            if cache.get(key, failure_retry_days) is not None:
+            # rodada. Cache antigo é ignorado porque pode conter DOR_UC
+            # indevidamente gravado como zoning legal.
+            if cache_is_current and cache.get(key, failure_retry_days) is not None:
                 return None, None
 
         county, _ = resolve_county(listing, cfg)
+        last_parcel_data: dict[str, Any] | None = None
+        last_parcel_source = ""
         for source in section.get("sources", []):
             name = source.get("name", "gis")
             source_type = source.get("type", "arcgis")
@@ -342,6 +464,10 @@ def lookup_zoning(
             if not url:
                 continue
             fields = [str(f) for f in source.get("fields", []) if f]
+            zoning_fields = _role_fields(source, "zoning_fields", _DEFAULT_ZONING_FIELDS)
+            cadastral_fields = _role_fields(
+                source, "cadastral_use_fields", _DEFAULT_CADASTRAL_FIELDS
+            )
             radius_m = float(source.get("radius_m", section.get("radius_m", 0)) or 0)
             try:
                 if source_type == "regrid":
@@ -359,30 +485,87 @@ def lookup_zoning(
                         out_fields=out_fields, radius_m=radius_m,
                     )
             except (requests.RequestException, ValueError, RuntimeError) as exc:
-                print(f"  [aviso] GIS {name} falhou: {type(exc).__name__}")
+                diagnostic = record_source_error(
+                    listing,
+                    source=name,
+                    operation="zoning_lookup",
+                    error=exc,
+                )
+                print(
+                    "  [aviso] source_error"
+                    f" source={diagnostic['source']}"
+                    f" operation={diagnostic['operation']}"
+                    f" error={diagnostic['error']}"
+                )
                 continue
             if not attrs:
                 # Resposta válida mas sem parcela no ponto (água, via pública,
                 # área fora da cobertura da fonte): registra para diagnóstico.
                 print(f"  [aviso] GIS {name}: sem parcela no ponto")
                 continue
-            for field in fields:
+            # Preserva os atributos da parcela para a triagem de área líquida,
+            # acesso, utilities e entitlement. A lista de campos varia por
+            # plano/provedor, por isso mantemos o payload sem inventar valores.
+            listing.raw.setdefault("_parcel_data", {}).update(attrs)
+            listing.raw["_parcel_source"] = name
+            last_parcel_data = dict(listing.raw["_parcel_data"])
+            last_parcel_source = name
+
+            # Uso cadastral é apenas evidência indicativa. Nunca alimenta
+            # listing.zoning nem desbloqueia aprovação automática.
+            for field in cadastral_fields:
                 value = attrs.get(field)
                 if value in (None, ""):
                     continue
-                label = _label_from_value(value, prefix_map)
+                label = _label_from_value(value, prefix_map, field=field)
                 if not label:
                     continue
-                note = f"✓ uso do solo via GIS {name}: {label} ({field}={value})"
+                _record_cadastral_use(
+                    listing,
+                    label=label,
+                    code=value,
+                    field=field,
+                    source=name,
+                )
+                break
+
+            # Somente campos declarados/depreendidos como zoning legal podem
+            # preencher listing.zoning.
+            for field in zoning_fields:
+                value = attrs.get(field)
+                if value in (None, ""):
+                    continue
+                label = str(value).strip().lower()
+                if not label:
+                    continue
+                note = f"✓ zoning legal via GIS {name}: {label} ({field}={value})"
                 owner = str(attrs.get("owner") or "").strip()
                 if owner:
                     # Dono da parcela (Regrid): abre a porta do contato direto.
                     note += f" · dono: {owner}"
-                cache.put(key, {"zoning": label, "note": note})
+                cache.put(key, {
+                    "schema_version": _CACHE_SCHEMA_VERSION,
+                    "zoning": label,
+                    "zoning_kind": "legal",
+                    "note": note,
+                    "parcel_data": attrs,
+                    "source": name,
+                    **_cache_metadata(listing),
+                })
                 return label, note
 
+            # A fonte respondeu com dados úteis, mesmo sem um campo de zoning.
+            # Guarda-os para due diligence e tenta a próxima fonte para zoning.
         # Nada respondeu: registra a falha para poupar as próximas rodadas.
-        cache.put(key, {"zoning": None, "note": None})
+        cache.put(key, {
+            "schema_version": _CACHE_SCHEMA_VERSION,
+            "zoning": None,
+            "zoning_kind": None,
+            "note": None,
+            "parcel_data": last_parcel_data,
+            "source": last_parcel_source,
+            **_cache_metadata(listing),
+        })
         return None, None
     finally:
         if own_cache:
@@ -392,10 +575,11 @@ def lookup_zoning(
 def enrich_zoning(
     listing: Listing, cfg: Config, cache: ZoningCache | None = None
 ) -> str | None:
-    """Preenche listing.zoning quando ausente; retorna a nota de proveniência."""
-    if listing.zoning:
-        return None
+    """Preenche listing.zoning apenas com evidência de zoning legal."""
+    had_zoning = bool(listing.zoning)
     zoning, note = lookup_zoning(listing, cfg, cache=cache)
-    if zoning:
+    if zoning and not listing.zoning:
         listing.zoning = zoning
-    return note
+    # Com zoning já preenchido, ainda consultamos/restauramos os atributos da
+    # parcela para due diligence, mas não anunciamos uma confirmação redundante.
+    return None if had_zoning else note

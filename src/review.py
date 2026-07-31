@@ -27,6 +27,16 @@ def _has_manual_review(result: ViabilityResult) -> bool:
     return any("analise manual" in _plain(reason) for reason in result.reasons)
 
 
+def _cadastral_review_note(result: ViabilityResult) -> str:
+    label = str(result.cadastral_use or "").strip()
+    if not label:
+        return ""
+    kind = "residencial" if "residential" in _plain(label) else label
+    source = f" via {result.cadastral_use_source}" if result.cadastral_use_source else ""
+    code = f"; código {result.cadastral_use_code}" if result.cadastral_use_code else ""
+    return f"uso cadastral {kind} indicativo{source}{code}"
+
+
 def _has_high_flood_risk(result: ViabilityResult, cfg: Config) -> bool:
     flood_cfg = cfg.raw.get("red_flags", {}).get("flood", {})
     high_risk_zones = {
@@ -90,13 +100,28 @@ def _is_development_candidate(result: ViabilityResult, cfg: Config) -> bool:
     if max_price_per_acre > 0 and price_per_acre > max_price_per_acre:
         return False
 
+    # Ausência de wetlands, acesso, utilities ou entitlement nunca equivale a
+    # confirmação positiva. O lote segue no Radar com pendências explícitas.
+    if result.due_diligence_status in {"impeditivo", "bloqueio"}:
+        return False
+
     zoning = _plain(result.listing.zoning or "")
-    blocked_hints = development.get(
-        "blocked_zoning_hints", ["conservation", "wetland"]
+    hard_blocked_hints = development.get(
+        "hard_blocked_zoning_hints",
+        development.get("blocked_zoning_hints", ["conservation only", "preservation"]),
     )
-    return not any(
-        _plain(str(hint)) in zoning for hint in blocked_hints if hint
-    )
+    if any(_plain(str(hint)) in zoning for hint in hard_blocked_hints if hint):
+        return False
+
+    min_net_acres = float(development.get("min_confirmed_net_acres", 0) or 0)
+    if (
+        min_net_acres > 0
+        and result.estimated_net_developable_acres is not None
+        and result.net_estimate_confidence in {"alta", "média"}
+        and result.estimated_net_developable_acres < min_net_acres
+    ):
+        return False
+    return True
 
 
 def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
@@ -118,14 +143,21 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
         price_per_acre = result.land_cost / acres
         zoning_note = "; zoneamento pendente" if not result.listing.zoning else ""
         result.review_status = "radar_desenvolvimento"
+        net_note = ""
+        if result.estimated_net_developable_acres is not None:
+            net_note = (
+                f"; líquido est. {result.estimated_net_developable_acres:.1f} acres"
+                f" ({result.net_estimate_confidence})"
+            )
         result.review_reason = (
-            f"area de {acres:.1f} acres para desenvolvimento; "
+            f"área de {acres:.1f} acres para desenvolvimento{net_note}; "
             f"US$ {price_per_acre:,.0f}/acre{zoning_note}"
         )
-        result.reasons.append(
-            f"◆ tese de desenvolvimento: {acres:.1f} acres, "
-            f"US$ {price_per_acre:,.0f}/acre"
-        )
+        if not result.gross_acres:
+            result.reasons.append(
+                f"◆ tese de desenvolvimento: {acres:.1f} acres, "
+                f"US$ {price_per_acre:,.0f}/acre"
+            )
         return
 
     if not _passes_numeric_filters(result, cfg):
@@ -160,7 +192,16 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
 
     if unknown_zoning and radar_cfg.get("include_unknown_zoning", True):
         result.review_status = "radar_zoneamento_pendente"
-        result.review_reason = "numeros bons; falta confirmar zoneamento"
+        cadastral_note = _cadastral_review_note(result)
+        if cadastral_note:
+            result.review_reason = (
+                f"numeros bons; {cadastral_note}; confirmar zoning legal"
+            )
+            evidence_reason = f"• {cadastral_note}; não confirma zoning legal"
+            if evidence_reason not in result.reasons:
+                result.reasons.append(evidence_reason)
+        else:
+            result.review_reason = "numeros bons; falta confirmar zoning legal"
         return
 
     if manual_review and radar_cfg.get("include_manual_review_segments", True):

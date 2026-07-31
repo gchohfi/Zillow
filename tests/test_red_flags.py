@@ -81,7 +81,7 @@ def test_apply_red_flags_can_block_when_configured(monkeypatch):
     assert any("bloqueado" in reason for reason in result.reasons)
 
 
-def test_fema_failure_fails_open(monkeypatch):
+def test_fema_failure_fails_open(monkeypatch, capsys):
     def fake_get(*args, **kwargs):
         raise TimeoutError("slow")
 
@@ -92,3 +92,12 @@ def test_fema_failure_fails_open(monkeypatch):
 
     assert result.risk_flags == ["FEMA flood check indisponivel: TimeoutError"]
     assert not result.blocks_alert
+    assert listing.raw["_source_errors"] == [{
+        "source": "fema_nfhl",
+        "operation": "flood_lookup",
+        "error": "TimeoutError",
+    }]
+    assert (
+        "source_error source=fema_nfhl operation=flood_lookup error=TimeoutError"
+        in capsys.readouterr().out
+    )

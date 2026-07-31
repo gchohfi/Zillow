@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from .config import Config
+from .diagnostics import record_source_error
 from .models import Listing, ViabilityResult
 
 
@@ -63,6 +64,18 @@ def check_flood_red_flag(listing: Listing, cfg: Config) -> RedFlagResult:
     try:
         attrs = _query_fema_flood_zone(listing, flood_cfg)
     except Exception as exc:  # noqa: BLE001
+        diagnostic = record_source_error(
+            listing,
+            source="fema_nfhl",
+            operation="flood_lookup",
+            error=exc,
+        )
+        print(
+            "  [aviso] source_error"
+            f" source={diagnostic['source']}"
+            f" operation={diagnostic['operation']}"
+            f" error={diagnostic['error']}"
+        )
         flag = f"FEMA flood check indisponivel: {type(exc).__name__}"
         return RedFlagResult(
             reasons=[f"⚠ {flag}"],

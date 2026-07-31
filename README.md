@@ -28,7 +28,7 @@ Arquivos principais:
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
 | `src/storage.py` | SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/availability.py` | Checagem de disponibilidade (status ativo, idade da listagem, MLS) |
-| `src/zoning.py` | Confirmação de zoneamento/uso do solo via Regrid ou GIS públicos (estadual + county) |
+| `src/zoning.py` | Zoneamento legal via Regrid/GIS e uso cadastral indicativo via DOR/Property Appraiser |
 | `src/arv.py` | ARV da casa pronta por comps reais (RentCast AVM), com travas de qualidade |
 | `src/rental.py` | Lente de renda: aluguel estimado → NOI, cap rate, DSCR, cash-on-cash |
 | `src/red_flags.py` | Zona de enchente FEMA (risco + sobretaxa de seguro) |
@@ -194,20 +194,23 @@ em vez de chegarem no WhatsApp como viáveis. As listas
 `residential_zoning_hints` e `prohibited_zoning_hints` permitem ajustar padrões
 locais como `R-1`, `RSF`, `PUD`, comercial, industrial, conservação etc.
 
-**Confirmação automática via GIS:** quando a listagem vem sem zoneamento, o
-sistema consulta fontes de parcela por coordenada e preenche o uso do solo
-antes da avaliação (`config.yaml → zoning_lookup`). A fonte preferencial é a
-**Regrid Parcels API** (zoneamento, uso do solo e dono da parcela; liga
+**Consulta automática via GIS:** quando a listagem vem sem zoneamento, o
+sistema consulta fontes de parcela por coordenada antes da avaliação
+(`config.yaml → zoning_lookup`). A fonte preferencial é a **Regrid Parcels
+API** (zoneamento legal, uso cadastral e dono da parcela; liga
 automaticamente quando `REGRID_API_KEY` existir). Atenção: o **trial da
 Regrid não cobre Orlando** — a API responde "This area is not included in
 API trials"; para dados reais é preciso um plano pago (regrid.com/api).
-Sem chave válida, o sistema usa os GIS públicos (estadual e por county, com
-raio de 30 m para geocodes que caem na rua) — validados em produção; se
-tudo falhar, a listagem segue para o Radar, como sempre.
-Residencial confirmado vira oportunidade viável direto no WhatsApp;
+Sem chave válida, o sistema usa os cadastros públicos estadual e por county,
+com raio de 30 m para geocodes que caem na rua. `DOR_UC`, `PA_UC`, `usedesc`
+e `landuse` são guardados como **uso cadastral indicativo**: priorizam e
+explicam o Radar, mas nunca preenchem o zoning nem aprovam a compra. Se tudo
+falhar, a listagem segue para o Radar, como sempre. Zoning legal residencial
+confirmado vira oportunidade viável direto no WhatsApp;
 comercial/industrial/conservação é reprovado sem revisão manual; falha de
-GIS mantém o comportamento atual (Radar). O resultado fica em cache por 90
-dias e novas fontes (ex.: GIS de um county) podem ser adicionadas só no
+GIS mantém o comportamento atual (Radar). O cache distingue as duas classes de
+evidência e ignora registros antigos que tenham confundido DOR com zoning. O
+resultado fica em cache por 90 dias e novas fontes podem ser adicionadas só no
 config, sem mexer em Python.
 
 ### Normalização de endereço e red flags
@@ -417,6 +420,12 @@ fórmula de spec build reprova. O objetivo é não perder áreas para loteamento
 multifamily, BTR, townhomes ou land banking. Zoneamentos explicitamente ligados
 a conservação ou wetland continuam bloqueados, e o Radar nunca equivale a uma
 aprovação automática.
+
+Para esses terrenos, o CSV, os alertas e o painel também mostram área bruta,
+três cenários de área líquida preliminar, preço por acre líquido, ficha do
+parcel, estágio de entitlement, evidências, pendências e a recomendação
+`avancar`, `avancar_com_condicoes`, `hold` ou `descartar`. A metodologia e as
+fontes oficiais estão em [docs/DUE_DILIGENCE_TERRENOS.md](docs/DUE_DILIGENCE_TERRENOS.md).
 
 Além disso:
 

@@ -117,6 +117,20 @@ def validate_config(cfg: "Config") -> list[str]:
     if isinstance(development, dict) and development.get("enabled", False):
         _number("development", "min_lot_size_sqft", 43_560)
         _number("development", "max_price_per_acre", 0, required=False)
+        _number("development", "min_confirmed_net_acres", 0, required=False)
+
+    due_diligence = raw.get("due_diligence")
+    if isinstance(due_diligence, dict) and due_diligence.get("enabled", False):
+        _number("due_diligence", "apply_to_min_lot_size_sqft", 0, required=False)
+        for field in (
+            "default_stormwater_reserve_pct",
+            "default_internal_infrastructure_pct",
+            "default_unknown_constraints_reserve_pct",
+            "max_total_deduction_pct",
+            "wetland_alert_pct",
+            "flood_alert_pct",
+        ):
+            _number("due_diligence", field, 0, 1, required=False)
 
     costs = raw.get("costs")
     if isinstance(costs, dict):

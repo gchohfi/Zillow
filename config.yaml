@@ -42,6 +42,7 @@ county_costs:
     lake:     { impact_fees: 15000 }
     polk:     { impact_fees: 12000 }
     volusia:  { impact_fees: 12000 }
+    brevard:  {}                         # sem override até confirmar taxas locais
   zip_to_county:
     # Orange
     "32703": orange
@@ -88,6 +89,15 @@ county_costs:
     "32713": volusia
     "32720": volusia
     "32724": volusia
+    # Brevard
+    "32754": brevard
+    "32780": brevard
+    "32781": brevard
+    "32796": brevard
+    "32920": brevard
+    "32922": brevard
+    "32926": brevard
+    "32927": brevard
 
 # ---- Cenário pessimista (análise de sensibilidade) ----
 # Cada oportunidade também mostra lucro/margem com ARV menor e obra mais cara.
@@ -209,12 +219,9 @@ rental:
     interest_rate: 0.070
     amort_years: 30
 
-# ---- Confirmação de zoneamento/uso do solo via GIS público ----
-# Quando a listagem vem sem zoneamento, consulta camadas ArcGIS públicas por
-# ponto e preenche o zoneamento antes da avaliação: residencial confirmado
-# vira oportunidade; comercial/industrial confirmado é reprovado; falha de
-# GIS mantém o comportamento atual (Radar). As fontes são tentadas em ordem
-# e novas (ex.: GIS de county) podem ser adicionadas aqui sem mexer no código.
+# ---- Zoning legal + uso cadastral indicativo via GIS/Regrid ----
+# Somente `zoning_fields` preenche listing.zoning. DOR_UC, PA_UC, usedesc e
+# landuse ficam como evidência indicativa no Radar; nunca aprovam sozinhos.
 zoning_lookup:
   enabled: true
   cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
@@ -233,13 +240,17 @@ zoning_lookup:
       # devolve FeatureCollections vazias. Requer plano pago (regrid.com/api);
       # com um token pago no secret, liga sozinho sem mexer em nada.
       query_url: https://app.regrid.com/api/v2/parcels/point
-      fields: [zoning_description, zoning, usedesc, usecode]
+      fields: [zoning_description, zoning, usedesc, usecode, landuse, future_land_use]
+      zoning_fields: [zoning_description, zoning]
+      cadastral_use_fields: [usedesc, landuse, usecode]
 
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
       # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
       query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
       fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
+      zoning_fields: []
+      cadastral_use_fields: [DOR_UC, PA_UC]
 
     - name: fl_saude_parcelas_county
       # Plano B: parcelas por county (Fla. Dept. of Health) — camadas bem
@@ -253,6 +264,8 @@ zoning_lookup:
         polk:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/52/query
         volusia:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/63/query
       fields: [DOR_UC, PA_UC]
+      zoning_fields: []
+      cadastral_use_fields: [DOR_UC, PA_UC]
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
@@ -273,9 +286,30 @@ development:
   enabled: true
   min_lot_size_sqft: 87120     # 2 acres; 1 acre = 43.560 sqft
   max_price_per_acre: 0        # 0 = sem teto até calibrarmos por corredor
-  blocked_zoning_hints:
-    - conservation
-    - wetland
+  min_confirmed_net_acres: 1.0 # só bloqueia se a área líquida vier confirmada/engenheirada
+  hard_blocked_zoning_hints:   # impedimentos explícitos; dado ausente nunca reprova
+    - conservation only
+    - preservation
+    - wetland/water
+
+# ---- Due diligence de áreas para desenvolvimento ----
+# Organiza evidências sem confundir mapa preliminar com confirmação técnica.
+# A área líquida é estimativa de triagem; wetlands formais, capacidade de
+# utilities, acesso e entitlement continuam pendentes até documento oficial.
+due_diligence:
+  enabled: true
+  apply_to_min_lot_size_sqft: 43560  # registra a partir de 1 acre
+  rules_as_of: "2026-07-20"          # versão/data da régua usada
+  default_stormwater_reserve_pct: 0.12
+  default_internal_infrastructure_pct: 0.08
+  default_unknown_constraints_reserve_pct: 0.15
+  max_total_deduction_pct: 0.90
+  wetland_alert_pct: 0.20
+  flood_alert_pct: 0.25
+  hard_block_zoning_hints:
+    - conservation only
+    - preservation
+    - wetland/water
 
 # ---- Sinais de crescimento da região (dashboard + WhatsApp) ----
 # Fontes gratuitas: OpenStreetMap (escolas/comércio próximos) e US Census ACS
