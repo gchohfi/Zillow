@@ -133,6 +133,19 @@ def build_memo_html(row: dict, generated_at: str | None = None) -> str:
         f"<tr><td>Zona FEMA</td><td>{html.escape(flood)}</td></tr>" if flood else ""
     )
 
+    cadastral_use = str(row.get("cadastral_use") or "").strip()
+    if cadastral_use:
+        code = str(row.get("cadastral_use_code") or "").strip()
+        source = str(row.get("cadastral_use_source") or "").strip()
+        detail = cadastral_use
+        if code:
+            detail += f" ({code})"
+        if source:
+            detail += f" via {source}"
+        checks.append(
+            f"Uso cadastral indicativo: {detail}; não confirma zoning legal"
+        )
+
     links = []
     if row.get("url"):
         links.append(f'<a href="{html.escape(str(row["url"]))}">Anúncio original</a>')

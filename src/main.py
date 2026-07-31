@@ -8,6 +8,7 @@ from .config import Config, env, validate_config
 from .availability import check_availability
 from .arv import enrich_arv
 from .datasource import get_source
+from .diagnostics import source_error_flags
 from .due_diligence import assess_due_diligence
 from .geo import within_radius
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
@@ -154,6 +155,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
         result.reasons.extend(availability_reasons)
         if flood is not None:
             apply_red_flags(result, cfg, flood=flood)
+        for flag in source_error_flags(listing):
+            if flag not in result.risk_flags:
+                result.risk_flags.append(flag)
+            reason = f"⚠ {flag}"
+            if reason not in result.reasons:
+                result.reasons.append(reason)
         assess_due_diligence(result, cfg)
         classify_review_status(result, cfg)
         if signals_cache is not None and result.review_status != "reprovado":
@@ -183,7 +190,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
           f"radar: {len(radar_candidates)} | reprovadas: {n_not_viable} | falhas: {n_failed} | "
           f"viáveis NOVOS: {len(viable_new)}")
     if zoning_cache is not None:
-        print(f"  [zoning] uso do solo confirmado via GIS: {n_zoning_confirmed}")
+        print(f"  [zoning] zoning legal confirmado via GIS: {n_zoning_confirmed}")
 
     # Grava as oportunidades viáveis na planilha CSV.
     csv_path = cfg.raw.get("output", {}).get("csv_path")

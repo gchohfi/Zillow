@@ -27,6 +27,16 @@ def _has_manual_review(result: ViabilityResult) -> bool:
     return any("analise manual" in _plain(reason) for reason in result.reasons)
 
 
+def _cadastral_review_note(result: ViabilityResult) -> str:
+    label = str(result.cadastral_use or "").strip()
+    if not label:
+        return ""
+    kind = "residencial" if "residential" in _plain(label) else label
+    source = f" via {result.cadastral_use_source}" if result.cadastral_use_source else ""
+    code = f"; código {result.cadastral_use_code}" if result.cadastral_use_code else ""
+    return f"uso cadastral {kind} indicativo{source}{code}"
+
+
 def _has_high_flood_risk(result: ViabilityResult, cfg: Config) -> bool:
     flood_cfg = cfg.raw.get("red_flags", {}).get("flood", {})
     high_risk_zones = {
@@ -182,7 +192,16 @@ def classify_review_status(result: ViabilityResult, cfg: Config) -> None:
 
     if unknown_zoning and radar_cfg.get("include_unknown_zoning", True):
         result.review_status = "radar_zoneamento_pendente"
-        result.review_reason = "numeros bons; falta confirmar zoneamento"
+        cadastral_note = _cadastral_review_note(result)
+        if cadastral_note:
+            result.review_reason = (
+                f"numeros bons; {cadastral_note}; confirmar zoning legal"
+            )
+            evidence_reason = f"• {cadastral_note}; não confirma zoning legal"
+            if evidence_reason not in result.reasons:
+                result.reasons.append(evidence_reason)
+        else:
+            result.review_reason = "numeros bons; falta confirmar zoning legal"
         return
 
     if manual_review and radar_cfg.get("include_manual_review_segments", True):

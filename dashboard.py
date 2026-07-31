@@ -141,6 +141,7 @@ def _render_map(df: pd.DataFrame) -> None:
             f"Mercado: {row.get('market_priority', 'n/d')}",
             f"ZIP: {row.get('zip_code', 'n/d')}",
             f"Condado: {row.get('county', 'n/d')}",
+            f"Uso cadastral (indicativo): {row.get('cadastral_use', 'n/d')}",
             f"Terreno: {_money(row.get('land_price'))}",
             f"Área bruta: {row.get('gross_acres', 'n/d')} acres",
             f"Área líquida preliminar: {row.get('estimated_net_developable_acres', 'n/d')} acres",
@@ -207,6 +208,7 @@ def main() -> None:
                 c for c in [
                     "found_at", "review_status", "review_reason", "address", "zip_code",
                     "county", "market_priority", "tier", "land_price", "arv", "profit", "margin",
+                    "cadastral_use", "cadastral_use_source",
                     "gross_acres", "estimated_net_developable_acres", "price_per_net_acre",
                     "due_diligence_recommendation", "due_diligence_completion_pct",
                     "future_land_use", "zoning", "entitlement_stage", "pending_confirmations",
@@ -219,6 +221,7 @@ def main() -> None:
             c for c in [
                 "found_at", "is_viable", "review_status", "address", "zip_code", "market_priority",
                 "county", "market_region", "tier", "land_price", "arv", "profit", "margin",
+                "cadastral_use", "cadastral_use_source",
                 "gross_acres", "estimated_net_developable_acres",
                 "due_diligence_recommendation", "due_diligence_completion_pct",
                 "risk_flags", "url",

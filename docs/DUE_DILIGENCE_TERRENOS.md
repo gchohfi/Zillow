@@ -18,9 +18,16 @@ Ausência de dado nunca é interpretada como resposta positiva. Em especial, o
 sistema não informa “sem wetlands” apenas porque a camada consultada não mostra
 wetland.
 
+`DOR_UC`, `PA_UC`, `usedesc` e `landuse` descrevem uso cadastral ou fiscal da
+parcela. Eles ajudam a priorizar o Radar, mas não comprovam o direito de
+construir. Somente um campo de zoning legal da Regrid/GIS competente, datado e
+identificado pela fonte, pode preencher o zoneamento automático. Sem essa
+evidência, a oportunidade permanece como “confirmar zoning legal”.
+
 ## Fluxo no sistema
 
-1. A listagem é normalizada e consultada no Regrid/GIS, quando configurado.
+1. A listagem é normalizada e consultada no Regrid/GIS, quando configurado. O
+   sistema preserva separadamente zoning legal e uso cadastral indicativo.
 2. Terrenos a partir de 1 acre recebem uma ficha preliminar de due diligence.
 3. Terrenos a partir de 2 acres podem entrar no `radar_desenvolvimento`, mesmo
    quando a conta de uma única casa reprova.

@@ -66,6 +66,10 @@ class ViabilityResult:
     arv_confidence: Optional[str] = None
     zip_code: Optional[str] = None
     county: str = ""
+    cadastral_use: str = ""
+    cadastral_use_code: str = ""
+    cadastral_use_source: str = ""
+    cadastral_use_status: str = ""
     market_region: str = ""
     market_priority: str = ""
     market_score: float = 0

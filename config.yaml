@@ -219,12 +219,9 @@ rental:
     interest_rate: 0.070
     amort_years: 30
 
-# ---- Confirmação de zoneamento/uso do solo via GIS público ----
-# Quando a listagem vem sem zoneamento, consulta camadas ArcGIS públicas por
-# ponto e preenche o zoneamento antes da avaliação: residencial confirmado
-# vira oportunidade; comercial/industrial confirmado é reprovado; falha de
-# GIS mantém o comportamento atual (Radar). As fontes são tentadas em ordem
-# e novas (ex.: GIS de county) podem ser adicionadas aqui sem mexer no código.
+# ---- Zoning legal + uso cadastral indicativo via GIS/Regrid ----
+# Somente `zoning_fields` preenche listing.zoning. DOR_UC, PA_UC, usedesc e
+# landuse ficam como evidência indicativa no Radar; nunca aprovam sozinhos.
 zoning_lookup:
   enabled: true
   cache_db: region_signals.db   # tabela própria dentro do mesmo arquivo
@@ -244,12 +241,16 @@ zoning_lookup:
       # com um token pago no secret, liga sozinho sem mexer em nada.
       query_url: https://app.regrid.com/api/v2/parcels/point
       fields: [zoning_description, zoning, usedesc, usecode, landuse, future_land_use]
+      zoning_fields: [zoning_description, zoning]
+      cadastral_use_fields: [usedesc, landuse, usecode]
 
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
       # códigos de uso DOR padronizados. Se a URL mudar, basta atualizar aqui.
       query_url: https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query
       fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
+      zoning_fields: []
+      cadastral_use_fields: [DOR_UC, PA_UC]
 
     - name: fl_saude_parcelas_county
       # Plano B: parcelas por county (Fla. Dept. of Health) — camadas bem
@@ -263,6 +264,8 @@ zoning_lookup:
         polk:     https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/52/query
         volusia:  https://gis.floridahealth.gov/server/rest/services/EHWATER/Parcels/FeatureServer/63/query
       fields: [DOR_UC, PA_UC]
+      zoning_fields: []
+      cadastral_use_fields: [DOR_UC, PA_UC]
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os

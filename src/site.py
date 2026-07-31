@@ -31,6 +31,10 @@ _ROW_FIELDS = (
     "tier",
     "zip_code",
     "county",
+    "cadastral_use",
+    "cadastral_use_code",
+    "cadastral_use_source",
+    "cadastral_use_status",
     "market_priority",
     "market_region",
     "market_score",
@@ -724,7 +728,10 @@ const rankOf = r => {
   const q = 0.5 * Math.min((r.margin || 0) / 0.25, 1)
           + 0.3 * ((g ? g.score : 0) / 10)
           + 0.2 * ((r.market_score != null ? r.market_score : 0) / 10);
-  return base + q + (isNew(r) ? 0.3 : 0);
+  const cadastralBonus = r.review_status === "radar_zoneamento_pendente"
+    ? (/residential/i.test(r.cadastral_use || "") ? 0.20 : (r.cadastral_use ? 0.05 : 0))
+    : 0;
+  return base + q + cadastralBonus + (isNew(r) ? 0.3 : 0);
 };
 
 const regionByZip = {};
@@ -900,6 +907,7 @@ function oppCard(r) {
     '<div><div class="opp-title">' + esc(r.address || r.id) + "</div>" +
     '<div class="opp-sub">' + esc(r.market_region || "fora das regiões-alvo") +
       (r.zip_code ? " · ZIP " + esc(r.zip_code) : "") +
+      (r.cadastral_use ? " · uso cadastral: " + esc(r.cadastral_use) + " (indicativo)" : "") +
       (r.tier ? " · " + esc(r.tier) : "") +
       (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
     '<div class="opp-stats">' +
@@ -997,6 +1005,7 @@ const COLS = [
       (r.review_reason && r.kind !== "viavel" ? '<div class="small muted">' + esc(r.review_reason) + "</div>" : "") },
   { h: "ZIP", c: r => esc(r.zip_code) || '<span class="muted">n/d</span>' },
   { h: "Condado", c: r => esc(r.county) || '<span class="muted">n/d</span>' },
+  { h: "Uso cadastral", c: r => r.cadastral_use ? esc(r.cadastral_use) + '<div class="small muted">indicativo · confirmar zoning</div>' : '<span class="muted">n/d</span>' },
   { h: "Mercado", c: r => esc(r.market_priority) +
       (r.market_region ? '<div class="small muted">' + esc(r.market_region) + "</div>" : "") },
   { h: "Segmento", c: r => esc(r.tier) || '<span class="muted">n/d</span>' },

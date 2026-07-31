@@ -10,6 +10,10 @@ from .config import Config
 from .models import ViabilityResult
 
 _DEVELOPMENT_COLUMNS = [
+    "cadastral_use",
+    "cadastral_use_code",
+    "cadastral_use_source",
+    "cadastral_use_status",
     "development_profile",
     "gross_acres",
     "estimated_net_developable_acres",
@@ -180,6 +184,10 @@ def _ensure_header(
 def _development_row(r: ViabilityResult) -> dict[str, object]:
     """Campos de triagem para áreas de desenvolvimento."""
     return {
+        "cadastral_use": r.cadastral_use,
+        "cadastral_use_code": r.cadastral_use_code,
+        "cadastral_use_source": r.cadastral_use_source,
+        "cadastral_use_status": r.cadastral_use_status,
         "development_profile": r.development_profile,
         "gross_acres": "" if r.gross_acres is None else f"{r.gross_acres:.2f}",
         "estimated_net_developable_acres": (

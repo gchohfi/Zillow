@@ -13,6 +13,14 @@ from .memo import memo_slug
 from .models import ViabilityResult
 
 
+def _cadastral_radar_priority(result: ViabilityResult) -> int:
+    if result.review_status != "radar_zoneamento_pendente":
+        return 0
+    if "residential" in (result.cadastral_use or "").lower():
+        return 2
+    return 1 if result.cadastral_use else 0
+
+
 def _format_result(r: ViabilityResult) -> str:
     L = r.listing
     dist = f"{L.distance_km:.0f} km" if L.distance_km is not None else "?"
@@ -67,7 +75,16 @@ def notify_radar(
         print("Nenhum candidato de Radar nesta rodada.")
         return
 
-    ranked = sorted(results, key=lambda r: (r.market_score, r.margin, r.profit), reverse=True)
+    ranked = sorted(
+        results,
+        key=lambda r: (
+            r.market_score,
+            _cadastral_radar_priority(r),
+            r.margin,
+            r.profit,
+        ),
+        reverse=True,
+    )
     selected = ranked[:max_messages]
     print(f"{len(results)} candidato(s) no Radar; {len(selected)} selecionado(s) para WhatsApp.")
     if dry_run:
@@ -231,6 +248,14 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
         f"Terreno/invest: {r.land_to_total_investment:.1%}",
         f"Distancia: {dist} de Orlando",
     ]
+    if r.cadastral_use:
+        lines.append(
+            "Uso cadastral (INDICATIVO): "
+            f"{r.cadastral_use}"
+            + (f" ({r.cadastral_use_code})" if r.cadastral_use_code else "")
+            + (f" via {r.cadastral_use_source}" if r.cadastral_use_source else "")
+            + "; confirmar zoning legal"
+        )
     if r.review_status == "radar_desenvolvimento":
         lines.extend([
             f"Perfil: {r.development_profile or 'desenvolvimento'}",
