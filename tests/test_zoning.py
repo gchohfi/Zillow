@@ -285,6 +285,30 @@ def test_query_requests_only_needed_fields_and_retries_timeout(tmp_path, monkeyp
     assert captured["outFields"] == "PARUSEDESC,DOR_UC"  # só os campos pedidos
 
 
+def test_source_specific_timeout_and_zero_retries_are_honored(tmp_path, monkeypatch):
+    import requests as req
+
+    calls = []
+
+    def always_timeout(url, params=None, headers=None, timeout=None, **kwargs):
+        calls.append(timeout)
+        raise req.ReadTimeout("fonte lenta")
+
+    monkeypatch.setattr("src.zoning.requests.get", always_timeout)
+    cfg = _cfg(tmp_path, timeout_seconds=45, sources=[{
+        "name": "indicativa_lenta",
+        "query_url": "https://gis.example.com/slow/query",
+        "fields": ["DOR_UC"],
+        "zoning_fields": [],
+        "cadastral_use_fields": ["DOR_UC"],
+        "timeout_seconds": 3,
+        "retries": 0,
+    }])
+
+    assert lookup_zoning(_listing(), cfg) == (None, None)
+    assert calls == [3.0]
+
+
 def test_invalid_field_falls_back_to_all_fields(tmp_path, monkeypatch):
     """Campo inexistente na camada -> refaz com outFields=* em vez de falhar."""
     seen = []

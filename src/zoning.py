@@ -469,20 +469,33 @@ def lookup_zoning(
                 source, "cadastral_use_fields", _DEFAULT_CADASTRAL_FIELDS
             )
             radius_m = float(source.get("radius_m", section.get("radius_m", 0)) or 0)
+            # Fontes auxiliares não podem bloquear a captura inteira. Cada
+            # provedor controla seu próprio orçamento de tempo/retries; sem
+            # override, preservamos o comportamento global anterior.
+            source_timeout = float(source.get("timeout_seconds", timeout) or timeout)
+            source_retries = max(
+                0,
+                int(source.get("retries", section.get("retries", 1))),
+            )
             try:
                 if source_type == "regrid":
                     token = env("REGRID_API_KEY")
                     if not token:
                         continue  # liga sozinho quando o secret existir
                     attrs = _query_regrid_point(
-                        url, listing.lat, listing.lng, token, timeout,
+                        url, listing.lat, listing.lng, token, source_timeout,
                         radius_m=radius_m,
                     )
                 else:
                     out_fields = ",".join(fields) if fields else "*"
                     attrs = _query_arcgis_point(
-                        url, listing.lat, listing.lng, timeout,
-                        out_fields=out_fields, radius_m=radius_m,
+                        url,
+                        listing.lat,
+                        listing.lng,
+                        source_timeout,
+                        out_fields=out_fields,
+                        retries=source_retries,
+                        radius_m=radius_m,
                     )
             except (requests.RequestException, ValueError, RuntimeError) as exc:
                 diagnostic = record_source_error(
