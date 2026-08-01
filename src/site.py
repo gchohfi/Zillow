@@ -336,171 +336,215 @@ _TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Orlando Land Detector — Oportunidades</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231769d2'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='24' font-weight='700' fill='white'%3EOL%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
-    --surface-1: #fcfcfb;
-    --page: #f9f9f7;
-    --text-primary: #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted: #898781;
-    --grid: #e1e0d9;
-    --border: rgba(11,11,11,0.10);
-    --status-good: #0ca30c;
-    --status-good-text: #006300;
-    --status-warning: #fab219;
-    --status-warning-text: #7a5200;
-    --status-muted: #898781;
-    --accent: #2a78d6;
-    --accent-wash: rgba(42,120,214,0.10);
-    --meter-track: #cde2fb;
-    --meter-fill: #2a78d6;
-    --chip-bg: #f0efec;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --surface-1: #1a1a19;
-      --page: #0d0d0d;
-      --text-primary: #ffffff;
-      --text-secondary: #c3c2b7;
-      --text-muted: #898781;
-      --grid: #2c2c2a;
-      --border: rgba(255,255,255,0.10);
-      --status-good-text: #0ca30c;
-      --status-warning-text: #fab219;
-      --accent: #3987e5;
-      --accent-wash: rgba(57,135,229,0.16);
-      --meter-track: #184f95;
-      --meter-fill: #6da7ec;
-      --chip-bg: #2c2c2a;
-    }
+    --surface-1: #ffffff;
+    --page: #f5f7fa;
+    --text-primary: #101828;
+    --text-secondary: #475467;
+    --text-muted: #7b8798;
+    --grid: #eef1f5;
+    --border: #e4e7ec;
+    --status-good: #168457;
+    --status-good-text: #116c49;
+    --status-good-wash: #eaf7f0;
+    --status-warning: #e2a126;
+    --status-warning-text: #9a6500;
+    --status-warning-wash: #fff7e6;
+    --status-critical: #c63d38;
+    --status-muted: #98a2b3;
+    --accent: #1769d2;
+    --accent-strong: #0f58b5;
+    --accent-wash: #eaf2fd;
+    --meter-track: #e6eef8;
+    --meter-fill: #2774d8;
+    --chip-bg: #f2f4f7;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.04);
   }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0;
     background: var(--page);
     color: var(--text-primary);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
-    line-height: 1.45;
+    line-height: 1.5;
   }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
-  header h1 { font-size: 20px; margin: 0 0 2px; }
-  header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  button, input, select { font: inherit; }
+  button { color: inherit; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .app-shell { min-height: 100vh; display: flex; }
+  .sidebar {
+    width: 224px; flex: 0 0 224px; min-height: 100vh; padding: 22px 16px 18px;
+    background: var(--surface-1); border-right: 1px solid var(--border);
+    position: sticky; top: 0; align-self: flex-start; height: 100vh;
+    display: flex; flex-direction: column; z-index: 30;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 24px; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    color: #fff; background: linear-gradient(145deg, #2679dd, #1255b5);
+    box-shadow: 0 6px 16px rgba(23,105,210,.22); font-weight: 800; letter-spacing: -.5px;
+  }
+  .brand-copy strong { display: block; font-size: 14px; letter-spacing: -.1px; }
+  .brand-copy span { color: var(--text-muted); font-size: 11px; }
+  .side-label { margin: 10px 10px 7px; color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .side-nav { display: grid; gap: 3px; }
+  .side-nav a {
+    min-height: 42px; padding: 0 11px; border-radius: 8px; display: flex; align-items: center; gap: 10px;
+    color: var(--text-secondary); font-size: 13px; font-weight: 600;
+  }
+  .side-nav a:hover { text-decoration: none; background: #f7f9fc; color: var(--text-primary); }
+  .side-nav a.active { color: var(--accent); background: var(--accent-wash); }
+  .nav-icon { width: 18px; text-align: center; color: currentColor; font-size: 12px; }
+  .sidebar-foot { margin-top: auto; padding: 16px 9px 0; border-top: 1px solid var(--grid); color: var(--text-muted); font-size: 11px; }
+  .app-main { flex: 1; min-width: 0; }
+  .topbar {
+    min-height: 64px; padding: 10px 28px; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px; position: sticky; top: 0; z-index: 25; backdrop-filter: blur(10px);
+  }
+  .breadcrumb { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+  .breadcrumb strong { color: var(--text-secondary); font-weight: 600; }
+  .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .search-wrap { position: relative; min-width: 220px; }
+  .search-wrap::before { content: "⌕"; position: absolute; left: 12px; top: 8px; color: var(--text-muted); font-size: 17px; pointer-events: none; }
+  #search {
+    width: 100%; min-height: 40px; padding: 8px 12px 8px 35px; border: 1px solid var(--border);
+    border-radius: 8px; background: #fbfcfe; color: var(--text-primary); font-size: 12px;
+  }
+  .top-action, .primary-action {
+    min-height: 40px; padding: 0 13px; border-radius: 8px; border: 1px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    background: var(--surface-1); color: var(--text-secondary); font-size: 12px; font-weight: 700; white-space: nowrap;
+  }
+  .top-action:hover { text-decoration: none; border-color: #cdd4df; color: var(--text-primary); }
+  .primary-action { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .primary-action:hover { text-decoration: none; color: #fff; background: var(--accent-strong); }
+  .content { width: 100%; max-width: 1560px; margin: 0 auto; padding: 29px 28px 52px; }
+  .page-head { margin: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+  .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 7px; }
+  .page-head h1 { margin: 0; font-size: clamp(23px, 2.3vw, 31px); line-height: 1.18; letter-spacing: -.035em; }
+  .page-head p { margin: 7px 0 0; color: var(--text-secondary); font-size: 13px; }
+  .scan-meta { padding-top: 5px; text-align: right; color: var(--text-muted); font-size: 11px; }
+  .scan-meta strong { display: block; color: var(--status-good-text); font-size: 12px; }
   .banner-new {
     display: none;
-    margin: 12px 0 0;
-    padding: 10px 14px;
-    border-radius: 10px;
+    margin: 16px 0 0; padding: 11px 14px 11px 42px; border-radius: 9px; position: relative;
     background: var(--accent-wash);
-    border: 1px solid var(--accent);
-    color: var(--text-primary);
-    font-weight: 600;
-    font-size: 14px;
+    border: 1px solid #c9ddf8; color: #174f94; font-weight: 650; font-size: 12px;
   }
-  .kpis { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+  .banner-new::before { content: "N"; position: absolute; left: 14px; top: 9px; width: 21px; height: 21px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: white; font-size: 10px; font-weight: 800; }
+  .kpis {
+    display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); margin: 20px 0 18px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 11px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
   .kpi {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 14px;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
+    min-height: 91px; padding: 18px 20px; display: flex; flex-direction: column; justify-content: center;
+    border-left: 1px solid var(--grid);
   }
-  .kpi .value { font-size: 20px; font-weight: 700; }
-  .kpi .label { color: var(--text-secondary); font-size: 12px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 16px; }
+  .kpi:first-child { border-left: 0; }
+  .kpi .value { font-size: 24px; line-height: 1; font-weight: 760; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .kpi .label { margin-top: 8px; color: var(--text-muted); font-size: 11px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 18px; }
+  .controls-spacer { flex: 1; }
   .chip {
     border: 1px solid var(--border);
     background: var(--surface-1);
     color: var(--text-secondary);
-    border-radius: 999px;
-    padding: 10px 16px;
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    cursor: pointer;
-    font-size: 13px;
+    border-radius: 8px; padding: 0 13px; min-height: 38px;
+    display: inline-flex; align-items: center; cursor: pointer; font-size: 12px; font-weight: 650;
   }
-  .chip.active { border-color: var(--accent); color: var(--text-primary); font-weight: 600; }
-  select#sort, select#min-margin, #search {
-    padding: 10px 12px;
-    min-height: 44px;
+  .chip:hover { border-color: #c7d0dc; }
+  .chip.active { border-color: #bad2f1; background: var(--accent-wash); color: var(--accent-strong); }
+  select#sort, select#min-margin {
+    padding: 8px 34px 8px 11px; min-height: 38px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface-1);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 12px;
   }
-  #search { flex: 1 1 180px; max-width: 300px; }
   .chip:focus-visible, .show-more:focus-visible, #search:focus-visible,
   select:focus-visible, .opp-star:focus-visible, .opp-dismiss:focus-visible,
-  summary:focus-visible {
+  summary:focus-visible, a:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-  section { margin-top: 26px; }
-  section h2 { font-size: 15px; margin: 0 0 6px; }
-  section .hint { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
+  .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, .88fr); gap: 18px; align-items: start; }
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 11px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .panel-head { padding: 17px 18px 13px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .panel-head h2 { font-size: 14px; margin: 0; letter-spacing: -.012em; }
+  .panel-head .hint { color: var(--text-muted); font-size: 11px; margin: 4px 0 0; }
+  .panel-count { padding: 4px 8px; border-radius: 999px; background: var(--chip-bg); color: var(--text-muted); font-size: 10px; font-weight: 700; white-space: nowrap; }
+  .opportunity-panel { min-width: 0; }
+  .opportunity-body { padding: 0 10px 12px; }
+  .insights-column { display: grid; gap: 18px; min-width: 0; }
   .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 
   /* ---- Feed de oportunidades (herói) ---- */
-  .opps { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
+  .opps { display: grid; gap: 8px; }
   .opp {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px;
+    padding: 13px 14px; display: flex; flex-direction: column; gap: 9px;
+    transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
   }
-  .opp.viavel { border-left: 4px solid var(--status-good); }
-  .opp.radar { border-left: 4px solid var(--status-warning); }
+  .opp:hover { border-color: #cfd6e0; box-shadow: 0 7px 20px rgba(16,24,40,.07); transform: translateY(-1px); }
+  .opp.viavel { border-left: 3px solid var(--status-good); }
+  .opp.radar { border-left: 3px solid var(--status-warning); }
   .opp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .opp-head .when { margin-left: auto; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
   .tag-new {
-    background: var(--accent);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    border-radius: 999px;
-    padding: 2px 8px;
-    letter-spacing: 0.4px;
+    background: var(--accent-wash); color: var(--accent-strong); border: 1px solid #cbdff8;
+    font-size: 9px; font-weight: 800; border-radius: 999px; padding: 2px 7px; letter-spacing: .06em;
   }
-  .opp-title { font-size: 15px; font-weight: 700; line-height: 1.3; }
-  .opp-sub { color: var(--text-secondary); font-size: 12px; }
-  .opp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .stat .l { color: var(--text-muted); font-size: 11px; }
-  .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .opp-alert { font-size: 12px; color: var(--status-warning-text); }
+  .opp-title { font-size: 14px; font-weight: 760; line-height: 1.3; letter-spacing: -.01em; }
+  .opp-sub { margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+  .opp-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    padding: 10px 0; border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
+  }
+  .stat { min-width: 0; padding: 0 11px; border-left: 1px solid var(--grid); }
+  .stat:first-child { padding-left: 0; border-left: 0; }
+  .stat .l { color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  .stat .v { margin-top: 2px; font-size: 13px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .opp-alert { font-size: 11px; color: var(--status-warning-text); }
   .opp-alert.ok { color: var(--status-good-text); }
-  .opp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; border-top: 1px solid var(--grid); }
+  .opp-actions { display: flex; gap: 13px; flex-wrap: wrap; margin-top: auto; }
   .opp-actions a {
-    font-size: 13px; font-weight: 600;
-    padding: 6px 4px; min-height: 40px;
-    display: inline-flex; align-items: center;
+    min-height: 28px; display: inline-flex; align-items: center;
+    font-size: 11px; font-weight: 700;
   }
   .opp-group {
-    font-size: 13px; font-weight: 700; color: var(--text-secondary);
-    margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.3px;
+    font-size: 10px; font-weight: 800; color: var(--text-muted);
+    margin: 14px 5px 7px; text-transform: uppercase; letter-spacing: .08em;
   }
-  .opp-group:first-child { margin-top: 0; }
+  .opp-group:first-child { margin-top: 2px; }
   .opp-group .count { color: var(--text-muted); font-weight: 500; text-transform: none; }
   .opp-star, .opp-dismiss {
-    border: none; background: none; cursor: pointer;
-    font-size: 16px; color: var(--text-muted);
-    min-width: 36px; min-height: 36px;
+    border: none; background: transparent; cursor: pointer; border-radius: 6px;
+    font-size: 14px; color: var(--text-muted); padding: 0;
+    min-width: 28px; min-height: 28px;
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .opp-star:hover, .opp-dismiss:hover { color: var(--accent); }
+  .opp-star:hover, .opp-dismiss:hover { color: var(--accent); background: var(--accent-wash); }
   .opp-star.on { color: var(--status-warning); }
   .opp.starred { border-color: var(--accent); }
   .opp-diligence { margin-top: 2px; }
   .opp-diligence summary {
-    cursor: pointer; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-size: 11px; font-weight: 700;
     color: var(--accent); list-style: none;
   }
   .opp-diligence summary::-webkit-details-marker { display: none; }
@@ -513,67 +557,67 @@ _TEMPLATE = """<!DOCTYPE html>
   .chk-bad { color: var(--status-critical, #d03b3b); }
   .chk-warn { color: var(--status-warning-text); }
   .dismissed-note {
-    margin-top: 10px; font-size: 13px; color: var(--text-muted);
+    margin-top: 8px; font-size: 11px; color: var(--text-muted);
     background: none; border: none; cursor: pointer; padding: 8px 4px;
   }
   .dismissed-note:hover { color: var(--accent); }
   .show-more {
-    margin-top: 12px;
+    margin: 10px 0 0;
     width: 100%;
     padding: 9px;
     border: 1px dashed var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     background: none;
     color: var(--accent);
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
   }
 
-  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
-  .badge .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 8px; font-size: 10px; white-space: nowrap; }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
   .badge.viavel .dot { background: var(--status-good); }
-  .badge.viavel { color: var(--status-good-text); font-weight: 600; }
+  .badge.viavel { color: var(--status-good-text); background: var(--status-good-wash); font-weight: 700; }
   .badge.radar .dot { background: var(--status-warning); }
-  .badge.radar { color: var(--status-warning-text); font-weight: 600; }
+  .badge.radar { color: var(--status-warning-text); background: var(--status-warning-wash); font-weight: 700; }
   .badge.reprovado .dot { background: var(--status-muted); }
-  .badge.reprovado { color: var(--text-muted); }
+  .badge.reprovado { color: var(--text-muted); background: var(--chip-bg); }
 
-  #map { height: 380px; }
-  .regions { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .map-wrap { border-top: 1px solid var(--grid); }
+  #map { height: 320px; background: #edf2f6; }
+  .map-legend { display: flex; flex-wrap: wrap; gap: 13px; padding: 10px 15px 13px; color: var(--text-muted); font-size: 10px; border-top: 1px solid var(--grid); }
+  .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .legend-dot.good { background: var(--status-good); }
+  .legend-dot.warning { background: var(--status-warning); }
+  .legend-dot.muted { background: var(--status-muted); }
+  .regions { display: grid; gap: 0; border-top: 1px solid var(--grid); }
   .region-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    background: var(--surface-1); border-top: 1px solid var(--grid); padding: 12px 16px;
+    display: grid; grid-template-columns: minmax(105px, 1.2fr) minmax(95px, .8fr); gap: 8px 14px; align-items: center;
   }
-  .region-card .zip { font-size: 15px; font-weight: 700; }
-  .region-card .name { color: var(--text-secondary); font-size: 12px; min-height: 28px; }
+  .region-card:first-child { border-top: 0; }
+  .region-card .zip { font-size: 12px; font-weight: 760; }
+  .region-card .name { color: var(--text-muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meter-row { display: flex; align-items: center; gap: 8px; }
-  .meter { flex: 1; height: 8px; border-radius: 4px; background: var(--meter-track); overflow: hidden; }
+  .meter { flex: 1; height: 6px; border-radius: 4px; background: var(--meter-track); overflow: hidden; }
   .meter > span { display: block; height: 100%; border-radius: 4px; background: var(--meter-fill); }
-  .meter-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .sig-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .meter-value { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sig-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
   .sig-chip {
     background: var(--chip-bg);
     color: var(--text-secondary);
     border-radius: 999px;
-    padding: 2px 9px;
-    font-size: 11.5px;
+    padding: 2px 7px;
+    font-size: 9px;
     white-space: nowrap;
   }
-  .region-card .counts { color: var(--text-muted); font-size: 12px; margin-top: auto; }
+  .region-card .counts { grid-column: 1 / -1; color: var(--text-muted); font-size: 9px; }
 
-  details.tbl { margin-top: 26px; }
+  .comparison-panel { margin-top: 18px; }
+  details.tbl { margin-top: 18px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
   details.tbl > summary {
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 600;
-    padding: 10px 4px;
-    color: var(--text-secondary);
+    cursor: pointer; font-size: 12px; font-weight: 700; padding: 14px 16px; color: var(--text-secondary);
   }
   .table-scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; min-width: 980px; }
@@ -587,106 +631,181 @@ _TEMPLATE = """<!DOCTYPE html>
     background: var(--surface-1);
   }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
   .links a { margin-right: 8px; white-space: nowrap; }
   .muted { color: var(--text-muted); }
   .small { font-size: 12px; }
   .empty { padding: 24px; color: var(--text-muted); text-align: center; }
   .growth-cell { min-width: 110px; }
   .growth-cell .meter { height: 6px; }
-  footer { margin-top: 32px; color: var(--text-muted); font-size: 12px; }
-  footer a { margin-right: 12px; }
-  @media (max-width: 480px) {
-    .opp-stats { grid-template-columns: repeat(2, 1fr); }
+  footer { margin-top: 18px; padding: 19px 4px 0; color: var(--text-muted); font-size: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 15px; }
+  footer a { font-weight: 700; }
+  footer span { flex: 1 1 440px; text-align: right; }
+  @media (max-width: 1180px) {
+    .sidebar { width: 76px; flex-basis: 76px; padding-inline: 10px; }
+    .brand { padding-inline: 11px; }
+    .brand-copy, .side-label, .side-nav a span:not(.nav-icon), .sidebar-foot { display: none; }
+    .side-nav a { justify-content: center; padding: 0; }
+    .dashboard-grid { grid-template-columns: minmax(0, 1fr) minmax(300px, .72fr); }
+    .kpi { padding-inline: 14px; }
   }
-  @media (max-width: 600px) {
-    .kpis, .controls {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scroll-snap-type: x proximity;
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: 4px;
-    }
-    .kpi, .chip { scroll-snap-align: start; flex: 0 0 auto; }
-    #search { min-width: 200px; max-width: none; }
+  @media (max-width: 920px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .insights-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kpis { grid-template-columns: repeat(3, 1fr); }
+    .kpi { border-top: 1px solid var(--grid); }
+    .kpi:nth-child(-n+3) { border-top: 0; }
+    .kpi:nth-child(4) { border-left: 0; }
+  }
+  @media (max-width: 720px) {
+    .app-shell { display: block; }
+    .sidebar { width: auto; min-height: 0; height: auto; position: static; padding: 10px 14px; border-right: 0; border-bottom: 1px solid var(--border); }
+    .brand { padding: 0; }
+    .brand-copy { display: block; }
+    .side-label, .sidebar-foot { display: none; }
+    .side-nav { display: flex; overflow-x: auto; margin-top: 10px; padding-bottom: 2px; }
+    .side-nav a { flex: 0 0 auto; min-height: 35px; padding: 0 11px; }
+    .side-nav a span:not(.nav-icon) { display: inline; }
+    .topbar { position: static; padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+    .breadcrumb { width: 100%; }
+    .topbar-actions { width: 100%; margin: 0; }
+    .search-wrap { flex: 1; min-width: 120px; }
+    .top-action { padding-inline: 10px; }
+    .content { padding: 22px 14px 38px; }
+    .page-head { display: block; }
+    .scan-meta { margin-top: 11px; text-align: left; }
+    .kpis { display: flex; overflow-x: auto; scroll-snap-type: x proximity; }
+    .kpi { flex: 0 0 142px; border-top: 0; scroll-snap-align: start; }
+    .controls { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    .controls-spacer { display: none; }
+    .chip, select#sort, select#min-margin { flex: 0 0 auto; }
+    .insights-column { grid-template-columns: 1fr; }
+    .opp-stats { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 0; }
+    .stat:nth-child(odd) { border-left: 0; padding-left: 0; }
+    .panel-head { padding-inline: 14px; }
+    footer span { text-align: left; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Orlando Land Detector</h1>
-    <p>Terrenos para spec build · raio de 80 km de Orlando · atualizado <span id="updated">—</span></p>
-    <div class="banner-new" id="banner-new"></div>
-  </header>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Navegação principal">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">OL</div>
+      <div class="brand-copy"><strong>Land Detector</strong><span>Orlando · Florida</span></div>
+    </div>
+    <div class="side-label">Workspace</div>
+    <nav class="side-nav">
+      <a class="active" href="#visao-geral"><span class="nav-icon">01</span><span>Visão geral</span></a>
+      <a href="#oportunidades"><span class="nav-icon">02</span><span>Oportunidades</span></a>
+      <a href="#mapa"><span class="nav-icon">03</span><span>Mapa</span></a>
+      <a href="#regioes"><span class="nav-icon">04</span><span>Regiões</span></a>
+      <a href="#avaliacoes"><span class="nav-icon">05</span><span>Avaliações</span></a>
+    </nav>
+    <div class="side-label">Dados</div>
+    <nav class="side-nav">
+      <a href="opportunities.csv" download><span class="nav-icon">CSV</span><span>Oportunidades</span></a>
+      <a href="evaluations.csv" download><span class="nav-icon">CSV</span><span>Avaliações</span></a>
+    </nav>
+    <div class="sidebar-foot">Radar automatizado de terrenos para spec build.</div>
+  </aside>
 
-  <div class="kpis">
-    <div class="kpi"><span class="value" id="kpi-new24">0</span><span class="label">novas em 24h</span></div>
-    <div class="kpi"><span class="value" id="kpi-viable">0</span><span class="label">viáveis</span></div>
-    <div class="kpi"><span class="value" id="kpi-radar">0</span><span class="label">no radar</span></div>
-    <div class="kpi"><span class="value" id="kpi-margin">—</span><span class="label">maior margem</span></div>
-    <div class="kpi"><span class="value" id="kpi-total">0</span><span class="label" id="kpi-total-label">avaliadas</span></div>
+  <div class="app-main">
+    <header class="topbar">
+      <div class="breadcrumb">Portfólio / <strong>Orlando Land Detector</strong></div>
+      <div class="topbar-actions">
+        <label class="search-wrap"><span class="sr-only">Buscar oportunidades</span><input id="search" type="search" placeholder="Buscar endereço, ZIP ou região"></label>
+        <a class="top-action" href="evaluations.csv" download>Exportar CSV</a>
+      </div>
+    </header>
+
+    <main class="content" id="visao-geral">
+      <section class="page-head">
+        <div>
+          <div class="eyebrow">Radar de oportunidades</div>
+          <h1>Orlando Land Detector</h1>
+          <p>Terrenos para spec build em um raio de 80 km de Orlando, com viabilidade e sinais de valorização.</p>
+        </div>
+        <div class="scan-meta"><strong>Varredura concluída</strong>Atualizado em <span id="updated">—</span></div>
+      </section>
+      <div class="banner-new" id="banner-new"></div>
+
+      <div class="kpis" aria-label="Indicadores do radar">
+        <div class="kpi"><span class="value" id="kpi-new24">0</span><span class="label">Novas nas últimas 24h</span></div>
+        <div class="kpi"><span class="value" id="kpi-viable">0</span><span class="label">Viáveis para oferta</span></div>
+        <div class="kpi"><span class="value" id="kpi-radar">0</span><span class="label">Em diligência</span></div>
+        <div class="kpi"><span class="value" id="kpi-margin">—</span><span class="label">Maior margem estimada</span></div>
+        <div class="kpi"><span class="value" id="kpi-total">0</span><span class="label" id="kpi-total-label">Avaliadas</span></div>
+      </div>
+
+      <div class="controls" aria-label="Filtros de oportunidades">
+        <button class="chip active" data-status="opp">Oportunidades</button>
+        <button class="chip" data-status="viavel">Viáveis</button>
+        <button class="chip" data-status="radar">Radar</button>
+        <button class="chip" data-status="all">Todas</button>
+        <span class="controls-spacer"></span>
+        <select id="sort" aria-label="Ordenar oportunidades">
+          <option value="rank">Ordem recomendada</option>
+          <option value="recent">Mais recentes</option>
+          <option value="margin">Maior margem</option>
+          <option value="profit">Maior lucro</option>
+        </select>
+        <select id="min-margin" aria-label="Margem mínima">
+          <option value="0">Margem: todas</option>
+          <option value="0.15">Margem 15%+</option>
+          <option value="0.20">Margem 20%+</option>
+          <option value="0.25">Margem 25%+</option>
+          <option value="0.30">Margem 30%+</option>
+        </select>
+      </div>
+
+      <div class="dashboard-grid">
+        <section class="panel opportunity-panel" id="oportunidades">
+          <div class="panel-head">
+            <div><h2>Oportunidades em aberto</h2><p class="hint">Prontas para oferta ou com uma pendência objetiva de diligência.</p></div>
+            <span class="panel-count">Ranking dinâmico</span>
+          </div>
+          <div class="opportunity-body">
+            <div id="opp-cards"></div>
+            <button class="show-more" id="show-more" style="display:none"></button>
+            <button class="dismissed-note" id="dismissed-note" style="display:none"></button>
+          </div>
+        </section>
+
+        <aside class="insights-column" aria-label="Mapa e regiões">
+          <section class="panel" id="mapa">
+            <div class="panel-head"><div><h2>Mapa de oportunidades</h2><p class="hint">Clique em um ponto para abrir os indicadores.</p></div></div>
+            <div class="map-wrap"><div id="map"></div></div>
+            <div class="map-legend"><span><i class="legend-dot good"></i>Viável</span><span><i class="legend-dot warning"></i>Radar</span><span><i class="legend-dot muted"></i>Reprovada</span></div>
+          </section>
+
+          <section class="panel" id="sec-regions">
+            <div class="panel-head" id="regioes"><div><h2>Crescimento por região</h2><p class="hint">Score combinado por ZIP, de 0 a 10.</p></div></div>
+            <div class="regions" id="region-cards"></div>
+            <div class="opportunity-body"><button class="show-more" id="show-more-regions" style="display:none"></button></div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="panel comparison-panel" id="sec-compare">
+        <div class="panel-head">
+          <div><h2>Comparador de oportunidades</h2><p class="hint">Abertas lado a lado, com a mesma base de custos, prazo e dívida.</p></div>
+          <span class="panel-count">Ordenado por margem</span>
+        </div>
+        <div class="table-scroll"><table id="tbl-compare"></table></div>
+      </section>
+
+      <details class="tbl" id="avaliacoes">
+        <summary>Tabela completa — todas as avaliações do período, inclusive reprovadas</summary>
+        <div class="table-scroll"><table id="tbl-all"></table></div>
+      </details>
+
+      <footer id="premissas">
+        <a href="opportunities.csv" download>Baixar oportunidades</a>
+        <a href="evaluations.csv" download>Baixar avaliações</a>
+        <span>Valores em USD e estimativas para triagem. Confirme título, zoneamento, infraestrutura e comps antes de investir.</span>
+      </footer>
+    </main>
   </div>
-
-  <div class="controls">
-    <button class="chip active" data-status="opp">Oportunidades</button>
-    <button class="chip" data-status="viavel">✓ Viáveis</button>
-    <button class="chip" data-status="radar">⚠ Radar</button>
-    <button class="chip" data-status="all">Tudo</button>
-    <select id="sort">
-      <option value="rank">Ordenar: recomendado</option>
-      <option value="recent">Mais recentes</option>
-      <option value="margin">Maior margem</option>
-      <option value="profit">Maior lucro</option>
-    </select>
-    <select id="min-margin" aria-label="Margem mínima">
-      <option value="0">Margem: todas</option>
-      <option value="0.15">Margem 15%+</option>
-      <option value="0.20">Margem 20%+</option>
-      <option value="0.25">Margem 25%+</option>
-      <option value="0.30">Margem 30%+</option>
-    </select>
-    <input id="search" type="search" placeholder="Endereço, ZIP, região…">
-  </div>
-
-  <section>
-    <h2>Oportunidades em aberto</h2>
-    <p class="hint">Viáveis passaram em todos os filtros; Radar tem números bons com uma pendência de diligência. Reprovadas ficam na tabela completa no fim da página.</p>
-    <div id="opp-cards"></div>
-    <button class="show-more" id="show-more" style="display:none"></button>
-    <button class="dismissed-note" id="dismissed-note" style="display:none"></button>
-  </section>
-
-  <section>
-    <h2>Mapa</h2>
-    <p class="hint">Verde = viável · Âmbar = radar · Cinza = reprovada. Clique no ponto para detalhes.</p>
-    <div class="card"><div id="map"></div></div>
-  </section>
-
-  <section id="sec-regions">
-    <h2>Crescimento por região</h2>
-    <p class="hint">Sinais de valorização: escolas e comércio próximos (OpenStreetMap), população e renda em 5 anos (US Census). Score 0–10 por ZIP.</p>
-    <div class="regions" id="region-cards"></div>
-    <button class="show-more" id="show-more-regions" style="display:none"></button>
-  </section>
-
-  <section id="sec-compare">
-    <h2>Comparador — abertas lado a lado</h2>
-    <p class="hint">Mesma base de premissas (custos, prazo e dívida do config), ordenado pela margem — para decidir entre dois terrenos em segundos.</p>
-    <div class="card table-scroll"><table id="tbl-compare"></table></div>
-  </section>
-
-  <details class="tbl">
-    <summary>Tabela completa (todas as avaliações do período, inclusive reprovadas)</summary>
-    <div class="card table-scroll"><table id="tbl-all"></table></div>
-  </details>
-
-  <footer>
-    <a href="opportunities.csv" download>Baixar oportunidades (CSV)</a>
-    <a href="evaluations.csv" download>Baixar avaliações (CSV)</a>
-    <span>Gerado automaticamente pelo Orlando Land Detector. Valores em USD; estimativas — não é recomendação de investimento.</span>
-  </footer>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -712,10 +831,12 @@ const fmtAgo = iso => {
 };
 const statusKind = s => s === "viavel" ? "viavel" : (s || "").startsWith("radar_") ? "radar" : "reprovado";
 const statusLabel = s => ({
-  viavel: "✓ Viável",
-  radar_zoneamento_pendente: "⚠ Radar: zoneamento",
-  radar_analise_manual: "⚠ Radar: análise manual",
-}[s] || (statusKind(s) === "radar" ? "⚠ Radar" : "Reprovada"));
+  viavel: "Viável",
+  radar_zoneamento_pendente: "Radar · Zoneamento",
+  radar_analise_manual: "Radar · Análise manual",
+  radar_desenvolvimento: "Radar · Desenvolvimento",
+  radar_valorizacao: "Radar · Valorização",
+}[s] || (statusKind(s) === "radar" ? "Radar" : "Reprovada"));
 
 const NOW = new Date(DATA.generated_at).getTime() || Date.now();
 const isNew = r => {
@@ -770,7 +891,7 @@ try {
     const fresh = opportunities.filter(r => new Date(r.found_at).getTime() > last);
     if (fresh.length) {
       const b = document.getElementById("banner-new");
-      b.textContent = "\\u{1F514} " + fresh.length + " nova(s) oportunidade(s) desde a sua última visita";
+      b.textContent = fresh.length + " nova(s) oportunidade(s) desde a sua última visita";
       b.style.display = "block";
     }
   }
@@ -802,16 +923,16 @@ const linkCell = r => linkParts(r).map(([t, u]) =>
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const SIG_ICONS = [
-  [/escola/i, "\\u{1F3EB}"],
-  [/comercio/i, "\\u{1F6D2}"],
-  [/populacao/i, "\\u{1F465}"],
-  [/renda/i, "\\u{1F4B0}"],
+  [/escola/i, "Escolas"],
+  [/comercio/i, "Comércio"],
+  [/populacao/i, "População"],
+  [/renda/i, "Renda"],
 ];
 function sigChips(signals) {
   if (!signals) return "";
   return signals.split(";").map(s => s.trim()).filter(Boolean).map(s => {
-    const icon = (SIG_ICONS.find(([re]) => re.test(s)) || [null, ""])[1];
-    return '<span class="sig-chip">' + icon + " " + esc(s) + "</span>";
+    const category = (SIG_ICONS.find(([re]) => re.test(s)) || [null, "Sinal"])[1];
+    return '<span class="sig-chip" title="' + esc(s) + '">' + category + "</span>";
   }).join("");
 }
 
@@ -872,7 +993,7 @@ const CARD_LIMIT = 8;
 function oppCard(r) {
   const alert = r.kind === "viavel"
     ? '<div class="opp-alert ok">Pronta para oferta — confirme diligência básica</div>'
-    : '<div class="opp-alert">' + "\\u26A0 " + esc(r.review_reason || "revisar diligência") + "</div>";
+    : '<div class="opp-alert">Pendente: ' + esc(r.review_reason || "revisar diligência") + "</div>";
   const g = growthOf(r);
   const growth = g
     ? '<div class="stat" title="' + esc(g.signals) + '"><div class="l">região \\u2191</div><div class="v">' + g.score.toFixed(1) + "/10</div></div>"
@@ -898,10 +1019,12 @@ function oppCard(r) {
       (isNew(r) ? '<span class="tag-new">NOVA</span>' : "") +
       '<span class="when">' + fmtAgo(r.found_at) + "</span>" +
       '<button class="opp-star' + (isStarred ? " on" : "") + '" data-id="' + esc(r.id) +
-        '" title="' + (isStarred ? "Deixar de acompanhar" : "Acompanhar") + '" aria-pressed="' + isStarred + '">' +
+        '" title="' + (isStarred ? "Deixar de acompanhar" : "Acompanhar") + '" aria-label="' +
+        (isStarred ? "Deixar de acompanhar oportunidade" : "Acompanhar oportunidade") + '" aria-pressed="' + isStarred + '">' +
         (isStarred ? "\\u2605" : "\\u2606") + "</button>" +
       '<button class="opp-dismiss" data-id="' + esc(r.id) +
-        '" title="' + (isDismissed ? "Restaurar" : "Descartar") + '">' +
+        '" title="' + (isDismissed ? "Restaurar" : "Descartar") + '" aria-label="' +
+        (isDismissed ? "Restaurar oportunidade" : "Descartar oportunidade") + '">' +
         (isDismissed ? "\\u21BA" : "\\u2715") + "</button>" +
     "</div>" +
     '<div><div class="opp-title">' + esc(r.address || r.id) + "</div>" +
@@ -912,6 +1035,7 @@ function oppCard(r) {
       (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
     '<div class="opp-stats">' +
       '<div class="stat"><div class="l">terreno</div><div class="v">' + fmtMoney(r.land_price) + "</div></div>" +
+      (!isDevelopment ? '<div class="stat"><div class="l">ARV</div><div class="v">' + fmtMoney(r.arv) + "</div></div>" : "") +
       thesisStats +
       growth +
     "</div>" +
@@ -958,8 +1082,8 @@ function renderCards(visible) {
     '<div class="opp-group">' + title + ' <span class="count">(' + list.length + ")</span></div>" +
     '<div class="opps">' + list.map(oppCard).join("") + "</div>";
   el.innerHTML =
-    section("\\u2713 Prontas para oferta", ready) +
-    section("\\u26A0 Em diligência", pending);
+    section("Prontas para oferta", ready) +
+    section("Em diligência", pending);
 
   if (cards.length > CARD_LIMIT && !showAllCards) {
     more.textContent = "Mostrar todas as " + cards.length + " oportunidades";
