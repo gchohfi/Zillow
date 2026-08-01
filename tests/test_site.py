@@ -47,6 +47,11 @@ def test_generate_site_without_data_still_writes_page(tmp_path):
     assert index.exists()
     html = index.read_text(encoding="utf-8")
     assert "Orlando Land Detector" in html
+    assert 'class="app-shell"' in html
+    assert 'class="sidebar"' in html
+    assert 'class="dashboard-grid"' in html
+    assert 'id="search"' in html
+    assert 'aria-label="Indicadores do radar"' in html
     assert "app.regrid.com/map#ll=" in html
     data = json.loads((index.parent / "data.json").read_text(encoding="utf-8"))
     assert "rows" in data and "generated_at" in data
