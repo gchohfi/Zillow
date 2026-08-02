@@ -22,6 +22,7 @@ Arquivos principais:
 
 | Arquivo | Papel |
 |---|---|
+| `SPEC.md` | **Especificação canônica do produto e do app**: páginas, componentes, comportamentos, jornadas, contratos e critérios de aceite |
 | `config.yaml` | **A sua fórmula** e todos os parâmetros (margem alvo, custos, premissas de renda, matriz de estresse, tese de mercado…) |
 | `src/main.py` | Orquestra tudo: busca → filtra → enriquece → avalia → alerta |
 | `src/datasource.py` | Fonte de listagens (RentCast; RapidAPI como fallback; modo `mock` sem chave) |
