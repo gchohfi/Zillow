@@ -132,6 +132,15 @@ def validate_config(cfg: "Config") -> list[str]:
         ):
             _number("due_diligence", field, 0, 1, required=False)
 
+    search_spec = raw.get("search_spec_infill_18m")
+    if isinstance(search_spec, dict) and search_spec.get("enabled", False):
+        _number("search_spec_infill_18m", "cycle_months", 1)
+        _number("search_spec_infill_18m", "target_irr_annual", 0, 1)
+        _number("search_spec_infill_18m", "score_qualified", 0, 100)
+        _number("search_spec_infill_18m", "score_review", 0, 100)
+        if not search_spec.get("markets"):
+            errors.append("'search_spec_infill_18m.markets' deve ter ao menos um mercado")
+
     costs = raw.get("costs")
     if isinstance(costs, dict):
         for field in _PCT_FIELDS:

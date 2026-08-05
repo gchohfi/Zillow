@@ -42,6 +42,18 @@ _ROW_FIELDS = (
     "risk_flags",
     "growth_score",
     "growth_signals",
+    "search_spec_name",
+    "search_spec_status",
+    "search_spec_score",
+    "search_spec_region",
+    "search_spec_reasons",
+    "search_spec_target_land_min",
+    "search_spec_target_land_max",
+    "search_spec_target_construction_per_sqft",
+    "search_spec_target_resale_per_sqft",
+    "search_spec_target_exit_price",
+    "search_spec_cycle_months",
+    "search_spec_target_irr_annual",
     "address",
     "lat",
     "lng",
@@ -101,6 +113,10 @@ _FLOAT_FIELDS = {
     "rent_monthly", "noi_annual", "cap_rate", "dscr", "cash_on_cash",
     "gross_acres", "estimated_net_developable_acres", "net_developable_pct",
     "due_diligence_completion_pct", "price_per_net_acre",
+    "search_spec_score", "search_spec_target_land_min", "search_spec_target_land_max",
+    "search_spec_target_construction_per_sqft", "search_spec_target_resale_per_sqft",
+    "search_spec_target_exit_price", "search_spec_cycle_months",
+    "search_spec_target_irr_annual",
 }
 
 
@@ -442,7 +458,7 @@ _TEMPLATE = """<!DOCTYPE html>
     background: var(--accent-wash);
     border: 1px solid #c9ddf8; color: #174f94; font-weight: 650; font-size: 12px;
   }
-  .banner-new::before { content: "N"; position: absolute; left: 14px; top: 9px; width: 21px; height: 21px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: white; font-size: 10px; font-weight: 800; }
+  .banner-new::before { content: ""; position: absolute; left: 17px; top: 15px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .kpis {
     display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); margin: 20px 0 18px;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 11px;
@@ -452,9 +468,15 @@ _TEMPLATE = """<!DOCTYPE html>
     min-height: 91px; padding: 18px 20px; display: flex; flex-direction: column; justify-content: center;
     border-left: 1px solid var(--grid);
   }
+  .kpi-actionable { background: linear-gradient(180deg, #f5f9ff 0%, #fff 100%); }
   .kpi:first-child { border-left: 0; }
   .kpi .value { font-size: 24px; line-height: 1; font-weight: 760; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .kpi .label { margin-top: 8px; color: var(--text-muted); font-size: 11px; }
+  .kpi-action {
+    width: fit-content; margin-top: 7px; color: var(--accent-strong); font-size: 10px;
+    font-weight: 750; text-decoration: none;
+  }
+  .kpi-action:hover { text-decoration: underline; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 18px; }
   .controls-spacer { flex: 1; }
   .chip {
@@ -522,8 +544,19 @@ _TEMPLATE = """<!DOCTYPE html>
   .stat .v { margin-top: 2px; font-size: 13px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .opp-alert { font-size: 11px; color: var(--status-warning-text); }
   .opp-alert.ok { color: var(--status-good-text); }
-  .opp-actions { display: flex; gap: 13px; flex-wrap: wrap; margin-top: auto; }
-  .opp-actions a {
+  .decision-axes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .decision-axis {
+    display: inline-flex; align-items: center; min-height: 25px; padding: 3px 8px;
+    border-radius: 999px; background: var(--chip-bg); color: var(--text-secondary);
+    font-size: 10px; font-weight: 650;
+  }
+  .decision-axis.good { color: var(--status-good-text); background: var(--status-good-wash); }
+  .decision-axis.warning { color: var(--status-warning-text); background: var(--status-warning-wash); }
+  .opp-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; }
+  .opp-primary { min-height: 34px; padding-inline: 11px; }
+  .opp-sources { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+  .opp-sources-label { color: var(--text-muted); font-size: 10px; }
+  .opp-sources a {
     min-height: 28px; display: inline-flex; align-items: center;
     font-size: 11px; font-weight: 700;
   }
@@ -613,6 +646,11 @@ _TEMPLATE = """<!DOCTYPE html>
     white-space: nowrap;
   }
   .region-card .counts { grid-column: 1 / -1; color: var(--text-muted); font-size: 9px; }
+  .region-thesis {
+    display: inline-flex; margin-left: 5px; padding: 2px 6px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--text-muted); font-size: 9px; font-weight: 650;
+  }
+  .region-thesis.in { background: var(--accent-wash); color: var(--accent-strong); }
 
   .comparison-panel { margin-top: 18px; }
   details.tbl { margin-top: 18px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
@@ -640,6 +678,17 @@ _TEMPLATE = """<!DOCTYPE html>
   footer { margin-top: 18px; padding: 19px 4px 0; color: var(--text-muted); font-size: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 15px; }
   footer a { font-weight: 700; }
   footer span { flex: 1 1 440px; text-align: right; }
+  .toast {
+    position: fixed; right: 20px; bottom: 20px; z-index: 80; max-width: min(360px, calc(100vw - 28px));
+    padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+    background: #142033; color: #fff; box-shadow: 0 14px 34px rgba(16,24,40,.22);
+    display: flex; align-items: center; gap: 14px; font-size: 12px;
+  }
+  .toast[hidden] { display: none; }
+  .toast button {
+    margin-left: auto; min-height: 32px; padding: 0; border: 0; background: transparent;
+    color: #8fc0ff; font-weight: 750; cursor: pointer;
+  }
   @media (max-width: 1180px) {
     .sidebar { width: 76px; flex-basis: 76px; padding-inline: 10px; }
     .brand { padding-inline: 11px; }
@@ -662,9 +711,11 @@ _TEMPLATE = """<!DOCTYPE html>
     .brand { padding: 0; }
     .brand-copy { display: block; }
     .side-label, .sidebar-foot { display: none; }
-    .side-nav { display: flex; overflow-x: auto; margin-top: 10px; padding-bottom: 2px; }
-    .side-nav a { flex: 0 0 auto; min-height: 35px; padding: 0 11px; }
+    .side-nav { display: flex; overflow-x: auto; margin-top: 10px; padding-bottom: 2px; gap: 2px; }
+    .side-nav a { flex: 0 0 auto; min-height: 44px; padding: 0 6px; font-size: 11px; }
     .side-nav a span:not(.nav-icon) { display: inline; }
+    .side-nav:not(.data-nav) .nav-icon { display: none; }
+    .data-nav { display: none; }
     .topbar { position: static; padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
     .breadcrumb { width: 100%; }
     .topbar-actions { width: 100%; margin: 0; }
@@ -673,16 +724,24 @@ _TEMPLATE = """<!DOCTYPE html>
     .content { padding: 22px 14px 38px; }
     .page-head { display: block; }
     .scan-meta { margin-top: 11px; text-align: left; }
-    .kpis { display: flex; overflow-x: auto; scroll-snap-type: x proximity; }
-    .kpi { flex: 0 0 142px; border-top: 0; scroll-snap-align: start; }
-    .controls { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+    .kpi { min-height: 88px; padding: 13px 12px; border-top: 0; }
+    .kpi .value { font-size: 23px; }
+    .kpi .label { font-size: 10px; }
+    .kpi-secondary { display: none; }
+    .controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; padding-bottom: 0; }
     .controls-spacer { display: none; }
-    .chip, select#sort, select#min-margin { flex: 0 0 auto; }
+    .chip { min-height: 44px; padding-inline: 7px; justify-content: center; }
+    select#sort, select#min-margin { min-height: 44px; min-width: 0; grid-column: span 2; }
     .insights-column { grid-template-columns: 1fr; }
     .opp-stats { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 0; }
     .stat:nth-child(odd) { border-left: 0; padding-left: 0; }
+    .opp-star, .opp-dismiss { min-width: 44px; min-height: 44px; }
+    .opp-primary { width: 100%; min-height: 44px; }
+    .opp-sources { width: 100%; }
     .panel-head { padding-inline: 14px; }
     footer span { text-align: left; }
+    .toast { right: 14px; bottom: 14px; }
   }
 </style>
 </head>
@@ -702,7 +761,7 @@ _TEMPLATE = """<!DOCTYPE html>
       <a href="#avaliacoes"><span class="nav-icon">05</span><span>Avaliações</span></a>
     </nav>
     <div class="side-label">Dados</div>
-    <nav class="side-nav">
+    <nav class="side-nav data-nav" aria-label="Downloads">
       <a href="opportunities.csv" download><span class="nav-icon">CSV</span><span>Oportunidades</span></a>
       <a href="evaluations.csv" download><span class="nav-icon">CSV</span><span>Avaliações</span></a>
     </nav>
@@ -730,11 +789,11 @@ _TEMPLATE = """<!DOCTYPE html>
       <div class="banner-new" id="banner-new"></div>
 
       <div class="kpis" aria-label="Indicadores do radar">
+        <div class="kpi kpi-actionable"><span class="value" id="kpi-viable">0</span><span class="label">Para revisar agora</span><a class="kpi-action" id="kpi-review-link" href="#oportunidades">Ver oportunidades</a></div>
+        <div class="kpi"><span class="value" id="kpi-radar">0</span><span class="label">Aguardando confirmação</span></div>
         <div class="kpi"><span class="value" id="kpi-new24">0</span><span class="label">Novas nas últimas 24h</span></div>
-        <div class="kpi"><span class="value" id="kpi-viable">0</span><span class="label">Viáveis para oferta</span></div>
-        <div class="kpi"><span class="value" id="kpi-radar">0</span><span class="label">Em diligência</span></div>
-        <div class="kpi"><span class="value" id="kpi-margin">—</span><span class="label">Maior margem estimada</span></div>
-        <div class="kpi"><span class="value" id="kpi-total">0</span><span class="label" id="kpi-total-label">Avaliadas</span></div>
+        <div class="kpi kpi-secondary"><span class="value" id="kpi-margin">—</span><span class="label" id="kpi-margin-label">Melhor margem viável</span></div>
+        <div class="kpi kpi-secondary"><span class="value" id="kpi-total">0</span><span class="label" id="kpi-total-label">Avaliadas</span></div>
       </div>
 
       <div class="controls" aria-label="Filtros de oportunidades">
@@ -761,8 +820,8 @@ _TEMPLATE = """<!DOCTYPE html>
       <div class="dashboard-grid">
         <section class="panel opportunity-panel" id="oportunidades">
           <div class="panel-head">
-            <div><h2>Oportunidades em aberto</h2><p class="hint">Prontas para oferta ou com uma pendência objetiva de diligência.</p></div>
-            <span class="panel-count">Ranking dinâmico</span>
+            <div><h2>Oportunidades em aberto</h2><p class="hint">Elegíveis financeiramente ou aguardando uma confirmação objetiva.</p></div>
+            <span class="panel-count" id="opportunity-count">Ranking dinâmico</span>
           </div>
           <div class="opportunity-body">
             <div id="opp-cards"></div>
@@ -779,7 +838,7 @@ _TEMPLATE = """<!DOCTYPE html>
           </section>
 
           <section class="panel" id="sec-regions">
-            <div class="panel-head" id="regioes"><div><h2>Crescimento por região</h2><p class="hint">Score combinado por ZIP, de 0 a 10.</p></div></div>
+            <div class="panel-head" id="regioes"><div><h2>Sinais de crescimento por região</h2><p class="hint">Score de sinais locais; não representa aderência à tese.</p></div></div>
             <div class="regions" id="region-cards"></div>
             <div class="opportunity-body"><button class="show-more" id="show-more-regions" style="display:none"></button></div>
           </section>
@@ -789,7 +848,7 @@ _TEMPLATE = """<!DOCTYPE html>
       <section class="panel comparison-panel" id="sec-compare">
         <div class="panel-head">
           <div><h2>Comparador de oportunidades</h2><p class="hint">Abertas lado a lado, com a mesma base de custos, prazo e dívida.</p></div>
-          <span class="panel-count">Ordenado por margem</span>
+          <span class="panel-count" id="compare-count">Ordenado por margem</span>
         </div>
         <div class="table-scroll"><table id="tbl-compare"></table></div>
       </section>
@@ -806,6 +865,11 @@ _TEMPLATE = """<!DOCTYPE html>
       </footer>
     </main>
   </div>
+</div>
+
+<div class="toast" id="undo-toast" role="status" aria-live="polite" hidden>
+  <span id="undo-message">Oportunidade descartada.</span>
+  <button type="button" id="undo-dismiss">Desfazer</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -882,6 +946,20 @@ document.getElementById("kpi-total-label").textContent =
 const candidates = viable.length ? viable : radar;
 const best = candidates.reduce((a, r) => (r.margin != null && (!a || r.margin > a.margin)) ? r : a, null);
 if (best) document.getElementById("kpi-margin").textContent = fmtPct(best.margin);
+if (!viable.length && radar.length) {
+  document.getElementById("kpi-margin-label").textContent = "Melhor margem em análise";
+}
+const firstReview = [...viable].sort((a, b) => rankOf(b) - rankOf(a))[0];
+const reviewLink = document.getElementById("kpi-review-link");
+if (firstReview && firstReview.memo) {
+  reviewLink.href = firstReview.memo;
+  reviewLink.target = "_blank";
+  reviewLink.rel = "noopener";
+  reviewLink.textContent = "Abrir melhor análise";
+} else if (!viable.length) {
+  reviewLink.textContent = radar.length ? "Ver pendências" : "Ver avaliações";
+  reviewLink.href = radar.length ? "#oportunidades" : "#avaliacoes";
+}
 
 // "Novas desde a sua última visita" (memória local do navegador).
 try {
@@ -898,7 +976,7 @@ try {
   localStorage.setItem(KEY, String(Date.now()));
 } catch (e) { /* navegação privada */ }
 
-function linkParts(r) {
+function sourceLinkParts(r) {
   const links = [];
   if (r.url) links.push(['Anúncio', r.url]);
   if (r.address) {
@@ -914,11 +992,17 @@ function linkParts(r) {
   if (r.lat != null && r.lng != null) {
     links.push(['Regrid', 'https://app.regrid.com/map#ll=' + r.lat + ',' + r.lng + '&z=17']);
   }
-  if (r.memo) links.push(['Memo', r.memo]);
+  return links;
+}
+function linkParts(r) {
+  const links = sourceLinkParts(r);
+  if (r.memo) links.push(['Análise', r.memo]);
   return links;
 }
 const linkCell = r => linkParts(r).map(([t, u]) =>
   '<a href="' + u + '" target="_blank" rel="noopener">' + t + "</a>").join(" ");
+const sourceLinkCell = r => sourceLinkParts(r).map(([t, u]) =>
+  '<a href="' + u + '" target="_blank" rel="noopener">' + t + "</a>").join("");
 
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -953,6 +1037,24 @@ function badge(r) {
   return '<span class="badge ' + r.kind + '" role="status"><span class="dot" aria-hidden="true"></span>' + statusLabel(r.review_status) + '</span>';
 }
 
+function decisionAxes(r) {
+  const finance = r.kind === "viavel"
+    ? '<span class="decision-axis good">Financeiro: elegível</span>'
+    : '<span class="decision-axis warning">Financeiro: em análise</span>';
+  const thesis = r.market_region
+    ? '<span class="decision-axis good">Tese: ' + esc(r.market_priority || "mapeada") + "</span>"
+    : '<span class="decision-axis warning">Tese: fora do alvo</span>';
+  const diligencePct = r.due_diligence_completion_pct == null
+    ? null
+    : Math.round(r.due_diligence_completion_pct * 100);
+  const diligence = diligencePct == null
+    ? '<span class="decision-axis warning">Diligência: confirmar</span>'
+    : diligencePct <= 0
+      ? '<span class="decision-axis warning">Diligência: não iniciada</span>'
+      : '<span class="decision-axis">Diligência: ' + diligencePct + "%</span>";
+  return '<div class="decision-axes" aria-label="Dimensões da decisão">' + finance + thesis + diligence + "</div>";
+}
+
 // ---- Curadoria do captador: descartar / acompanhar (memória do navegador) ----
 const DISMISSED_KEY = "oland-dismissed";
 const STARRED_KEY = "oland-starred";
@@ -963,6 +1065,8 @@ try {
   starred = new Set(JSON.parse(localStorage.getItem(STARRED_KEY) || "[]"));
 } catch (e) { /* navegação privada */ }
 let showDismissed = false;
+let lastDismissedId = null;
+let undoTimer = null;
 
 function persistSets() {
   try {
@@ -970,6 +1074,30 @@ function persistSets() {
     localStorage.setItem(STARRED_KEY, JSON.stringify([...starred]));
   } catch (e) { /* navegação privada */ }
 }
+
+function showUndo(id) {
+  const toast = document.getElementById("undo-toast");
+  const row = rows.find(r => r.id === id);
+  lastDismissedId = id;
+  document.getElementById("undo-message").textContent = row && row.address
+    ? row.address + " foi descartada."
+    : "Oportunidade descartada.";
+  toast.hidden = false;
+  if (undoTimer) clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => {
+    toast.hidden = true;
+    lastDismissedId = null;
+  }, 7000);
+}
+
+document.getElementById("undo-dismiss").addEventListener("click", () => {
+  if (!lastDismissedId) return;
+  dismissed.delete(lastDismissedId);
+  persistSets();
+  document.getElementById("undo-toast").hidden = true;
+  lastDismissedId = null;
+  renderAll();
+});
 
 function reasonChecklist(r) {
   if (!r.reasons) return "";
@@ -992,7 +1120,9 @@ const CARD_LIMIT = 8;
 
 function oppCard(r) {
   const alert = r.kind === "viavel"
-    ? '<div class="opp-alert ok">Pronta para oferta — confirme diligência básica</div>'
+    ? (r.market_region
+        ? '<div class="opp-alert ok">Elegível financeiramente — confirme zoneamento e infraestrutura antes de ofertar.</div>'
+        : '<div class="opp-alert">Elegível financeiramente, mas fora da tese regional — valide a estratégia antes de ofertar.</div>')
     : '<div class="opp-alert">Pendente: ' + esc(r.review_reason || "revisar diligência") + "</div>";
   const g = growthOf(r);
   const growth = g
@@ -1001,6 +1131,11 @@ function oppCard(r) {
   const isStarred = starred.has(r.id);
   const isDismissed = dismissed.has(r.id);
   const isDevelopment = r.review_status === "radar_desenvolvimento";
+  const arvLabel = r.arv_source === "rentcast_avm" ? "ARV · comps" : "ARV · premissa";
+  const primaryAction = r.memo
+    ? '<a class="primary-action opp-primary" href="' + r.memo + '" target="_blank" rel="noopener">Abrir análise</a>'
+    : "";
+  const sources = sourceLinkCell(r);
   const thesisStats = isDevelopment
     ? '<div class="stat"><div class="l">área bruta</div><div class="v">' +
         (r.gross_acres == null ? (r.lot_size_acres == null ? "n/d" : Number(r.lot_size_acres).toFixed(1) + " ac") : Number(r.gross_acres).toFixed(1) + " ac") + "</div></div>" +
@@ -1035,13 +1170,16 @@ function oppCard(r) {
       (r.distance_km != null ? " · " + fmtKm(r.distance_km) : "") + "</div></div>" +
     '<div class="opp-stats">' +
       '<div class="stat"><div class="l">terreno</div><div class="v">' + fmtMoney(r.land_price) + "</div></div>" +
-      (!isDevelopment ? '<div class="stat"><div class="l">ARV</div><div class="v">' + fmtMoney(r.arv) + "</div></div>" : "") +
+      (!isDevelopment ? '<div class="stat"><div class="l">' + arvLabel + '</div><div class="v">' + fmtMoney(r.arv) + "</div></div>" : "") +
       thesisStats +
       growth +
     "</div>" +
+    decisionAxes(r) +
     alert +
     reasonChecklist(r) +
-    '<div class="opp-actions">' + linkCell(r) + "</div>" +
+    '<div class="opp-actions">' + primaryAction +
+      (sources ? '<div class="opp-sources"><span class="opp-sources-label">Fontes</span>' + sources + "</div>" : "") +
+    "</div>" +
   "</article>";
 }
 
@@ -1049,6 +1187,7 @@ function renderCards(visible) {
   const el = document.getElementById("opp-cards");
   const more = document.getElementById("show-more");
   const note = document.getElementById("dismissed-note");
+  const count = document.getElementById("opportunity-count");
 
   let cards = visible.filter(r => r.kind !== "reprovado");
   const hiddenCount = cards.filter(r => dismissed.has(r.id)).length;
@@ -1066,6 +1205,13 @@ function renderCards(visible) {
     note.style.display = "none";
   }
 
+  const readyTotal = cards.filter(r => r.kind === "viavel");
+  const pendingTotal = cards.filter(r => r.kind === "radar");
+  const countParts = [];
+  if (readyTotal.length) countParts.push(readyTotal.length + " para revisar");
+  if (pendingTotal.length) countParts.push(pendingTotal.length + " para confirmar");
+  count.textContent = countParts.join(" · ") || "0 abertas";
+
   if (!cards.length) {
     el.innerHTML = '<div class="card empty">Nenhuma oportunidade em aberto no período/filtro.' +
       (searchTerm ? " Tente limpar a busca." : "") +
@@ -1078,12 +1224,13 @@ function renderCards(visible) {
   const shown = showAllCards ? cards : cards.slice(0, CARD_LIMIT);
   const ready = shown.filter(r => r.kind === "viavel");
   const pending = shown.filter(r => r.kind === "radar");
-  const section = (title, list) => !list.length ? "" :
-    '<div class="opp-group">' + title + ' <span class="count">(' + list.length + ")</span></div>" +
+  const section = (title, list, total) => !list.length ? "" :
+    '<div class="opp-group">' + title + ' <span class="count">(' + total + ')' +
+      (list.length < total ? " · exibindo " + list.length : "") + "</span></div>" +
     '<div class="opps">' + list.map(oppCard).join("") + "</div>";
   el.innerHTML =
-    section("Prontas para oferta", ready) +
-    section("Em diligência", pending);
+    section("Para revisar", ready, readyTotal.length) +
+    section("Aguardando confirmação", pending, pendingTotal.length);
 
   if (cards.length > CARD_LIMIT && !showAllCards) {
     more.textContent = "Mostrar todas as " + cards.length + " oportunidades";
@@ -1111,7 +1258,12 @@ document.getElementById("opp-cards").addEventListener("click", event => {
     renderAll();
   } else if (dis) {
     const id = dis.dataset.id;
-    dismissed.has(id) ? dismissed.delete(id) : dismissed.add(id);
+    if (dismissed.has(id)) {
+      dismissed.delete(id);
+    } else {
+      dismissed.add(id);
+      showUndo(id);
+    }
     persistSets();
     renderAll();
   }
@@ -1163,20 +1315,24 @@ function renderTable(el, data, emptyMsg) {
 
 const COMPARE_LIMIT = 12;
 
-function renderCompare() {
+function renderCompare(visible) {
   const el = document.getElementById("tbl-compare");
+  const section = document.getElementById("sec-compare");
+  const count = document.getElementById("compare-count");
   // Lotes de desenvolvimento ficam de fora: a base deles é preço/acre e
   // densidade, não a margem de casa única — comparar seria enganoso.
-  const open = rows
+  const open = visible
     .filter(r => r.review_status === "viavel" || r.review_status.startsWith("radar"))
     .filter(r => r.review_status !== "radar_desenvolvimento")
     .filter(r => !dismissed.has(r.id))
     .sort((a, b) => (b.margin || -1) - (a.margin || -1))
     .slice(0, COMPARE_LIMIT);
   if (open.length < 2) {
-    document.getElementById("sec-compare").style.display = "none";
+    section.style.display = "none";
     return;
   }
+  section.style.display = "";
+  count.textContent = open.length + " comparáveis · por margem";
   const cols = [
     { h: "Endereço", c: r => (r.memo
         ? '<a href="' + r.memo + '" target="_blank" rel="noopener">' + esc(r.address || r.id) + "</a>"
@@ -1221,7 +1377,9 @@ function renderRegions() {
   el.innerHTML = shown.map(g =>
     '<div class="region-card">' +
       '<div><span class="zip">' + esc(g.zip) + "</span>" +
-      (g.priority ? ' <span class="small muted">' + esc(g.priority) + "</span>" : "") +
+      (g.region
+        ? ' <span class="region-thesis in">Tese: ' + esc(g.priority || "mapeada") + "</span>"
+        : ' <span class="region-thesis">Fora da tese</span>') +
       "</div>" +
       '<div class="name">' + esc(g.region || "fora das regiões-alvo mapeadas") + "</div>" +
       meterHtml(g.growth_score) +
@@ -1243,7 +1401,8 @@ function matches(r) {
   if ((statusFilter === "viavel" || statusFilter === "radar") && r.kind !== statusFilter) return false;
   if (minMargin > 0 && (r.margin || 0) < minMargin) return false;
   if (!searchTerm) return true;
-  const hay = [r.address, r.zip_code, r.market_region, r.market_priority, r.tier, r.zoning]
+  const hay = [r.address, r.zip_code, r.market_region, r.market_priority, r.tier, r.zoning,
+    r.search_spec_name, r.search_spec_status, r.search_spec_region, r.search_spec_reasons]
     .join(" ").toLowerCase();
   return hay.includes(searchTerm);
 }
@@ -1276,7 +1435,7 @@ function renderAll() {
   // completa continua mostrando tudo, para auditoria).
   const mapVisible = showDismissed ? visible : visible.filter(r => !dismissed.has(r.id));
   renderMarkers(mapVisible);
-  renderCompare();
+  renderCompare(visible);
 }
 
 const tblDetails = document.querySelector("details.tbl");
