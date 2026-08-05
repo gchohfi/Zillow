@@ -40,6 +40,21 @@ _DEVELOPMENT_COLUMNS = [
     "price_per_net_acre",
 ]
 
+_SEARCH_SPEC_COLUMNS = [
+    "search_spec_name",
+    "search_spec_status",
+    "search_spec_score",
+    "search_spec_region",
+    "search_spec_reasons",
+    "search_spec_target_land_min",
+    "search_spec_target_land_max",
+    "search_spec_target_construction_per_sqft",
+    "search_spec_target_resale_per_sqft",
+    "search_spec_target_exit_price",
+    "search_spec_cycle_months",
+    "search_spec_target_irr_annual",
+]
+
 _COLUMNS = [
     "found_at",
     "review_status",
@@ -54,6 +69,7 @@ _COLUMNS = [
     "risk_flags",
     "growth_score",
     "growth_signals",
+    *_SEARCH_SPEC_COLUMNS,
     "id",
     "address",
     "normalized_address",
@@ -107,6 +123,7 @@ _EVALUATION_COLUMNS = [
     "growth_score",
     "growth_signals",
     "reasons",
+    *_SEARCH_SPEC_COLUMNS,
     "id",
     "address",
     "normalized_address",
@@ -229,6 +246,44 @@ def _development_row(r: ViabilityResult) -> dict[str, object]:
     }
 
 
+def _search_spec_row(r: ViabilityResult) -> dict[str, object]:
+    """Campos auditáveis da lente adicional de busca."""
+    return {
+        "search_spec_name": r.search_spec_name,
+        "search_spec_status": r.search_spec_status,
+        "search_spec_score": (
+            "" if r.search_spec_score is None else f"{r.search_spec_score:.1f}"
+        ),
+        "search_spec_region": r.search_spec_region,
+        "search_spec_reasons": "; ".join(r.search_spec_reasons),
+        "search_spec_target_land_min": (
+            "" if r.search_spec_target_land_min is None else round(r.search_spec_target_land_min)
+        ),
+        "search_spec_target_land_max": (
+            "" if r.search_spec_target_land_max is None else round(r.search_spec_target_land_max)
+        ),
+        "search_spec_target_construction_per_sqft": (
+            "" if r.search_spec_target_construction_per_sqft is None
+            else round(r.search_spec_target_construction_per_sqft)
+        ),
+        "search_spec_target_resale_per_sqft": (
+            "" if r.search_spec_target_resale_per_sqft is None
+            else round(r.search_spec_target_resale_per_sqft)
+        ),
+        "search_spec_target_exit_price": (
+            "" if r.search_spec_target_exit_price is None
+            else round(r.search_spec_target_exit_price)
+        ),
+        "search_spec_cycle_months": (
+            "" if r.search_spec_cycle_months is None else r.search_spec_cycle_months
+        ),
+        "search_spec_target_irr_annual": (
+            "" if r.search_spec_target_irr_annual is None
+            else f"{r.search_spec_target_irr_annual:.4f}"
+        ),
+    }
+
+
 def append_results(
     results: list[ViabilityResult],
     csv_path: str,
@@ -261,6 +316,7 @@ def append_results(
                 "risk_flags": "; ".join(r.risk_flags),
                 "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
                 "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
+                **_search_spec_row(r),
                 "id": L.id,
                 "address": L.address,
                 "normalized_address": L.normalized_address,
@@ -339,6 +395,7 @@ def append_evaluations(
                 "growth_score": "" if r.growth_score is None else f"{r.growth_score:.1f}",
                 "growth_signals": "; ".join(r.growth_signals.get("summary", [])),
                 "reasons": " | ".join(r.reasons),
+                **_search_spec_row(r),
                 "id": L.id,
                 "address": L.address,
                 "normalized_address": L.normalized_address,

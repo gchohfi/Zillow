@@ -200,6 +200,22 @@ def test_dashboard_includes_compare_section(tmp_path):
     assert "Comparador" in html
 
 
+def test_dashboard_uses_shared_filters_and_decision_first_copy(tmp_path):
+    index = generate_site(_cfg(tmp_path))
+    html = index.read_text(encoding="utf-8")
+
+    assert "renderCompare(visible)" in html
+    assert 'id="opportunity-count"' in html
+    assert "Para revisar agora" in html
+    assert "Aguardando confirmação" in html
+    assert "Melhor margem em análise" in html
+    assert "Elegível financeiramente" in html
+    assert "Abrir análise" in html
+    assert 'id="undo-toast"' in html
+    assert 'aria-live="polite"' in html
+    assert ".kpi-secondary { display: none; }" in html
+
+
 def test_development_memo_shows_land_basis_not_spec_math(tmp_path):
     fields_extra = {"lot_size_acres": "6.18", "price_per_acre": "121359",
                     "margin": "-3.307", "land_price": "750000"}
