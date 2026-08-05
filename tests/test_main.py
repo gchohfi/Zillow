@@ -1,5 +1,7 @@
 """Tests for the batch orchestration behavior."""
 
+import pytest
+
 from src.config import Config
 from src.main import _format_run_summary, run
 from src.models import Listing
@@ -102,6 +104,57 @@ def test_source_failure_sends_status_message(monkeypatch, tmp_path):
     assert messages
     assert messages[0][0] == "[Orlando Land] Falha na fonte de dados"
     assert "timeout na RentCast" in messages[0][1]
+
+
+def test_listing_is_not_marked_seen_before_evaluation_csv_is_persisted(
+    monkeypatch, tmp_path
+):
+    cfg = Config.load()
+    seen_path = tmp_path / "seen.db"
+    cfg.raw["storage"]["db_path"] = str(seen_path)
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["availability"] = {
+        "require_status_active": False,
+        "reject_removed": False,
+        "max_last_seen_hours": 0,
+        "max_listed_age_days": 0,
+        "require_mls_number": False,
+    }
+    cfg.raw["zoning_lookup"]["enabled"] = False
+    cfg.raw["red_flags"]["flood"]["enabled"] = False
+    cfg.raw["region_signals"]["enabled"] = False
+    cfg.raw["arv"]["enabled"] = False
+    cfg.raw["rental"]["enabled"] = False
+    listing = Listing(
+        id="persist-before-seen",
+        price=500_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Persist before seen, Orlando, FL",
+        zoning="residential",
+        lot_size_sqft=8000,
+    )
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [listing]
+
+    def fail_to_persist(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr("src.main.append_evaluations", fail_to_persist)
+
+    with pytest.raises(OSError, match="disk full"):
+        run(use_mock=False, dry_run=True)
+
+    from src.storage import SeenStore
+
+    store = SeenStore(str(seen_path))
+    assert store.is_new(listing)
+    store.close()
 
 
 def test_run_summary_reports_empty_round():

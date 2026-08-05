@@ -179,7 +179,6 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             apply_rental_analysis(result, cfg)
         evaluated_results.append(result)
 
-        store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
             viable_new.append(result)
         elif is_radar_candidate(result):
@@ -201,6 +200,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
     if evaluations_csv_path and evaluated_results:
         append_evaluations(evaluated_results, evaluations_csv_path, cfg=cfg)
+
+    # Só confirma a deduplicação depois de persistir os resultados. Se o job
+    # for cancelado ou o CSV falhar, as listagens voltam na próxima rodada em
+    # vez de desaparecerem como "vistas" sem nunca terem sido publicadas.
+    for result in evaluated_results:
+        store.mark_seen(result.listing)
 
     notify(viable_new, dry_run=dry_run)
     radar_cfg = cfg.raw.get("radar", {})
