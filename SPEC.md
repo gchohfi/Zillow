@@ -2,7 +2,9 @@
 
 Status: canonical specification for the current product
 
-Last reviewed: 2026-08-01
+Additional executable search lens: [`SEARCH_SPEC_INFILL_18M.md`](SEARCH_SPEC_INFILL_18M.md). It evaluates premium residential infill opportunities independently from the primary spec-build approval.
+
+Last reviewed: 2026-08-02
 
 References:
 
@@ -215,10 +217,10 @@ Behavior:
 
 KPIs:
 
+- viable opportunities labeled as "Para revisar agora";
+- radar opportunities labeled as "Aguardando confirmação";
 - open opportunities found in the last 24 hours;
-- viable opportunities;
-- radar opportunities;
-- highest margin among viable opportunities, or radar when no viable opportunity exists;
+- highest margin among viable opportunities, or radar when no viable opportunity exists, labeled as "Melhor margem viável";
 - total evaluations within the configured dashboard period.
 
 Rules:
@@ -226,7 +228,8 @@ Rules:
 - rejected evaluations are included only in total evaluations;
 - the highest margin must display `n/d` or an em dash when no usable value exists;
 - the dashboard period comes from `config.yaml -> site.period_days`;
-- KPIs become horizontally scrollable on narrow screens.
+- the viable KPI links to the highest-ranked generated analysis when one exists;
+- mobile shows the three decision KPIs in a complete grid and hides the two secondary context KPIs to avoid clipped horizontal scrolling.
 
 ### 5.4 FilterBar
 
@@ -270,6 +273,7 @@ Rules:
 - show viable cards before radar cards;
 - show starred cards before non-starred cards within the selected order;
 - show at most eight cards initially;
+- group counts represent all matching opportunities, while a separate label may state how many are currently displayed;
 - provide a control to reveal all matching opportunities;
 - keep rejected evaluations out of the feed;
 - show an explanatory empty state when no card matches.
@@ -285,6 +289,7 @@ Required content:
 - market region, ZIP, tier and distance when available;
 - cadastral use when available, always labeled as indicative;
 - financial or development metrics;
+- separate decision dimensions for financial eligibility, regional-thesis alignment and diligence state;
 - regional score;
 - pending issue or ready-for-offer message;
 - expandable diligence checklist;
@@ -316,6 +321,9 @@ Behavior:
 - star and dismiss buttons require accessible labels and pressed state where applicable;
 - the Memo link appears only when a generated memo exists;
 - external links open in a new tab with `noopener`;
+- the generated decision memo is the primary card action and is labeled "Abrir análise";
+- Zillow, Maps, Realtor and Regrid are presented as secondary evidence sources;
+- dismissing a card provides a temporary undo action;
 - missing numbers display `n/d`, never zero unless the underlying value is actually zero.
 
 ### 5.8 DiligenceChecklist

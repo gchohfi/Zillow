@@ -119,3 +119,17 @@ class ViabilityResult:
     net_area_scenarios: dict[str, float] = field(default_factory=dict)
     price_per_net_acre: Optional[float] = None
     due_diligence_recommendation: str = ""
+    # Lente adicional de busca: tese de infill residencial / ciclo de 18 meses.
+    # É informativa e auditável; não altera sozinha a aprovação do spec build.
+    search_spec_name: str = ""
+    search_spec_status: str = ""
+    search_spec_score: Optional[float] = None
+    search_spec_region: str = ""
+    search_spec_reasons: list[str] = field(default_factory=list)
+    search_spec_target_land_min: Optional[float] = None
+    search_spec_target_land_max: Optional[float] = None
+    search_spec_target_construction_per_sqft: Optional[float] = None
+    search_spec_target_resale_per_sqft: Optional[float] = None
+    search_spec_target_exit_price: Optional[float] = None
+    search_spec_cycle_months: Optional[float] = None
+    search_spec_target_irr_annual: Optional[float] = None

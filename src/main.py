@@ -17,6 +17,7 @@ from .rental import apply_rental_analysis, enrich_rent
 from .region_signals import SignalsCache, get_region_signals, prefetch_config_zips
 from .reporter import append_evaluations, append_results
 from .review import classify_review_status, is_radar_candidate
+from .search_spec import apply_search_spec
 from .storage import SeenStore
 from .viability import evaluate
 from .zoning import ZoningCache, enrich_zoning
@@ -163,6 +164,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
                 result.reasons.append(reason)
         assess_due_diligence(result, cfg)
         classify_review_status(result, cfg)
+        apply_search_spec(result, cfg)
         if signals_cache is not None and result.review_status != "reprovado":
             signals = get_region_signals(
                 result.zip_code, listing.lat, listing.lng, cfg, cache=signals_cache

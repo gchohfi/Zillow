@@ -403,6 +403,79 @@ market_strategy:
       strategies: ["premium SFR", "luxury infill", "small multifamily seletivo"]
       risk_flags: ["basis alto", "margem depende de compra com desconto", "STR somente com validacao legal"]
 
+# ---- Especificação adicional de busca: infill residencial / ciclo de 18 meses ----
+# Fonte: material fornecido pela usuária em 05/08/2026 (IMG_4616–IMG_4628).
+# Estes valores são premissas de triagem, não comps verificados nem promessa de retorno.
+# A lente não altera sozinha `is_viable`: adiciona aderência, pendências e benchmarks
+# ao CSV/dashboard para que o negócio seja analisado com um segundo modelo.
+search_spec_infill_18m:
+  enabled: true
+  id: jpbf_infill_18m
+  label: "Infill residencial — ciclo de 18 meses"
+  cycle_months: 18
+  target_irr_annual: 0.23
+  score_qualified: 70
+  score_review: 45
+  portfolio_reference:
+    groups: 8
+    homes_per_group: 2
+    total_homes: 16
+    shares_per_project: 3
+    share_value: 250000
+    total_program_capital: 6000000
+  product:
+    - "Modern Farmhouse Premium"
+    - "estrutura CBS / concrete block"
+    - "janelas de impacto"
+    - "acabamentos premium"
+    - "pool + spa + outdoor kitchen quando suportado pelo lote e mercado"
+  required_diligence:
+    - "comps vendidos recentes e comparáveis por produto"
+    - "zoning, FAR, setbacks e capacidade construtiva"
+    - "licenças e cronograma com buffer"
+    - "orçamento de demolição, reconstrução e contingência"
+    - "flood, seguro, título, utilities e acesso"
+    - "liquidez e absorção do micromercado"
+  markets:
+    - name: winter_park
+      label: "Winter Park"
+      zips: ["32789", "32792"]
+      land_price_min: 750000
+      land_price_max: 850000
+      construction_per_sqft_min: 220
+      construction_per_sqft_max: 230
+      resale_per_sqft_min: 700
+      resale_per_sqft_max: 700
+      exit_price_min: 2200000
+      exit_price_max: 2200000
+    - name: orlando_sodo
+      label: "Orlando · SODO"
+      zips: ["32806"]
+      land_price_min: 350000
+      land_price_max: 450000
+      construction_per_sqft_min: 160
+      construction_per_sqft_max: 160
+      resale_per_sqft_min: 380
+      resale_per_sqft_max: 480
+      exit_price_min: 1100000
+      exit_price_max: 1400000
+    - name: college_park
+      label: "College Park"
+      zips: ["32804"]
+      land_price_min: 500000
+      land_price_max: 550000
+      construction_per_sqft_min: 210
+      construction_per_sqft_max: 220
+      resale_per_sqft_min: 480
+      resale_per_sqft_max: 480
+      exit_price_min: 1400000
+      exit_price_max: 1400000
+    - name: maitland_reference
+      label: "Maitland · referência de comparáveis"
+      zips: ["32751"]
+      resale_per_sqft_min: 513
+      resale_per_sqft_max: 513
+
 # ---- Resumo diário por e-mail ----
 summary:
   period_hours: 24             # janela do resumo (últimas N horas do CSV)
