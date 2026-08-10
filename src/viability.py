@@ -1,0 +1,432 @@
+"""Motor de viabilidade para spec build (comprar terreno → construir → vender).
+
+A fórmula e as regras de corte vêm todas do config.yaml, então você ajusta o
+comportamento sem mexer no código.
+"""
+
+from __future__ import annotations
+
+from .config import Config
+from .market_strategy import classify_market, extract_zip
+from .models import Listing, ViabilityResult
+
+_RESIDENTIAL_HINTS = (
+    "resid",
+    "single family",
+    "single-family",
+    "sfr",
+    "rsf",
+    "rs-",
+    "r-1",
+    "r1",
+    "r-2",
+    "r2",
+    "r-3",
+    "r3",
+    "pud",
+    "planned unit development",
+)
+_PROHIBITED_ZONING_HINTS = (
+    "commercial",
+    "industrial",
+    "office",
+    "retail",
+    "warehouse",
+    "conservation",
+    "wetland",
+    "agricultural",
+)
+
+
+def _as_hints(values: object, default: tuple[str, ...]) -> tuple[str, ...]:
+    if not values:
+        return default
+    if isinstance(values, str):
+        return (values.lower(),)
+    if isinstance(values, list):
+        return tuple(str(value).lower() for value in values if value)
+    return default
+
+
+def _looks_residential(zoning: str | None, rules: dict | None = None) -> bool | None:
+    """True/False se der pra inferir; None se o dado não existe."""
+    if not zoning:
+        return None
+    rules = rules or {}
+    z = zoning.lower()
+    prohibited = _as_hints(rules.get("prohibited_zoning_hints"), _PROHIBITED_ZONING_HINTS)
+    if any(hint in z for hint in prohibited):
+        return False
+    residential = _as_hints(rules.get("residential_zoning_hints"), _RESIDENTIAL_HINTS)
+    return any(hint in z for hint in residential)
+
+
+def _resolve_tier(price: float, cfg: Config) -> dict:
+    """Acha o segmento (padrão) cujo teto max_price >= preço. Vazio se não houver."""
+    for tier in cfg.raw.get("tiers", []):
+        ceiling = tier.get("max_price")
+        if ceiling is None or price <= float(ceiling):
+            return tier
+    return {}
+
+
+def _merged(base: dict, override: dict | None) -> dict:
+    """Mescla os parâmetros do segmento por cima dos padrões base."""
+    if not override:
+        return dict(base)
+    return {**base, **override}
+
+
+def resolve_county(listing: Listing, cfg: Config) -> tuple[str, dict]:
+    """County da parcela/Regrid ou ZIP e os overrides de custo, se houver."""
+    section = cfg.raw.get("county_costs", {})
+    counties = section.get("counties") or {}
+    zip_map = section.get("zip_to_county") or {}
+
+    # Quando Regrid/GIS informou o county, essa fonte é mais específica que
+    # inferência por ZIP (alguns ZIPs atravessam limites administrativos).
+    raw = listing.raw or {}
+    parcel = raw.get("_parcel_data")
+    sources = [parcel, raw] if isinstance(parcel, dict) else [raw]
+    for data in sources:
+        for field in ("county", "county_name", "countyname", "cntyname"):
+            value = data.get(field)
+            if value in (None, "") or str(value).strip().isdigit():
+                continue
+            county = str(value).strip().lower()
+            if county.endswith(" county"):
+                county = county[:-7].strip()
+            return county, dict(counties.get(county) or {})
+
+    zip_code = extract_zip(listing)
+    county = str(zip_map.get(zip_code or "") or "")
+    if not county:
+        return "", {}
+    return county, dict(counties.get(county) or {})
+
+
+def resolve_parameters(listing: Listing, cfg: Config) -> tuple[str, dict, dict, dict]:
+    """Resolve segmento e parâmetros efetivos para uma listagem.
+
+    Ordem de precedência dos custos: base → segmento → county (via ZIP).
+    """
+    tier = _resolve_tier(float(listing.price), cfg)
+    tier_label = tier.get("label") or tier.get("name") or ""
+
+    build = _merged(cfg.build, tier.get("build"))
+    costs = _merged(cfg.costs, tier.get("costs"))
+    _, county_costs = resolve_county(listing, cfg)
+    costs = _merged(costs, county_costs)
+    rules = _merged(cfg.rules, tier.get("rules"))
+    return tier_label, build, costs, rules
+
+
+def _project(
+    land_cost: float,
+    arv: float,
+    build: dict,
+    costs: dict,
+    flood_surcharge_annual: float = 0.0,
+    *,
+    arv_mult: float = 1.0,
+    constr_mult: float = 1.0,
+    extra_months: float = 0.0,
+    rate_add: float = 0.0,
+    insurance_add: float = 0.0,
+) -> dict:
+    """Projeta o negócio (base ou com choque univariado) e retorna componentes.
+
+    Os choques modelam a matriz de sensibilidade: preço de saída menor,
+    obra mais cara, venda mais demorada, carrego/juros maiores e choque
+    de seguro. Choques de prazo/juros exigem base anual de carrego
+    (carrying_cost_annual_pct); com percentual fixo eles não se aplicam.
+    """
+    living_area = float(build["living_area_sqft"])
+    s_arv = arv * arv_mult
+    construction = float(build["construction_cost_per_sqft"]) * living_area * constr_mult
+    soft = float(costs["soft_cost_pct"]) * construction
+    closing = float(costs.get("purchase_closing_pct", 0)) * land_cost
+    contingency = float(costs.get("contingency_pct", 0)) * construction
+    site_prep = float(costs.get("site_prep_cost", 0) or 0)
+    impact = float(costs.get("impact_fees", 0) or 0)
+    months = float(costs.get("carrying_months", 12)) + extra_months
+    if "carrying_cost_annual_pct" in costs:
+        carrying = (float(costs["carrying_cost_annual_pct"]) + rate_add) * (
+            months / 12
+        ) * (land_cost + construction)
+    else:
+        carrying = float(costs.get("carrying_cost_pct", 0)) * (land_cost + construction)
+    flood_insurance = (flood_surcharge_annual + insurance_add) * months / 12
+    carrying += flood_insurance
+    selling = float(costs["selling_cost_pct"]) * s_arv
+    total = (
+        land_cost + construction + soft + closing + contingency
+        + site_prep + impact + carrying + selling
+    )
+    profit = s_arv - total
+    return {
+        "arv": s_arv,
+        "construction": construction,
+        "soft": soft,
+        "closing": closing,
+        "contingency": contingency,
+        "site_prep": site_prep,
+        "impact": impact,
+        "carrying": carrying,
+        "flood_insurance": flood_insurance,
+        "selling": selling,
+        "total": total,
+        "profit": profit,
+        "margin": profit / s_arv if s_arv else 0.0,
+    }
+
+
+def evaluate(listing: Listing, cfg: Config) -> ViabilityResult:
+    """Aplica a fórmula de spec build (com parâmetros do segmento) e diz se é viável."""
+    land_cost = float(listing.price)
+    if land_cost <= 0:
+        raise ValueError(f"preco invalido para a listagem {listing.id!r}: {land_cost}")
+
+    # Parâmetros base, sobrescritos pelos do segmento quando existirem.
+    tier_label, build, costs, rules = resolve_parameters(listing, cfg)
+
+    living_area = float(build["living_area_sqft"])
+
+    # --- Componentes da fórmula ---
+    config_arv = float(build["resale_price_per_sqft"]) * living_area
+    arv = float(listing.arv_estimate or config_arv)
+    arv_source = listing.arv_source or "config"
+    # Seguro sensível a risco climático: zona FEMA de alto risco encarece o
+    # seguro durante a obra (o marcador vem do check de flood, pré-avaliação).
+    flood_high_risk = bool(listing.raw.get("_flood_high_risk"))
+    flood_surcharge = 0.0
+    if flood_high_risk:
+        flood_surcharge = float(
+            cfg.raw.get("red_flags", {}).get("flood", {})
+            .get("insurance_surcharge_annual", 0) or 0
+        )
+
+    base = _project(land_cost, arv, build, costs, flood_surcharge)
+    construction_cost = base["construction"]
+    soft_cost = base["soft"]
+    purchase_closing_cost = base["closing"]
+    contingency_cost = base["contingency"]
+    site_prep_cost = base["site_prep"]
+    impact_fees = base["impact"]
+    carrying_cost = base["carrying"]
+    flood_insurance_cost = base["flood_insurance"]
+    selling_cost = base["selling"]
+    total_cost = base["total"]
+    profit = base["profit"]
+    margin = base["margin"]
+    land_to_arv = land_cost / arv if arv else float("inf")
+    land_to_total_investment = land_cost / total_cost if total_cost else float("inf")
+
+    # --- Cenário pessimista (choques combinados) ---
+    stress_cfg = cfg.raw.get("stress", {})
+    arv_drop = float(stress_cfg.get("arv_drop_pct", 0.10) or 0)
+    cost_rise = float(stress_cfg.get("construction_rise_pct", 0.10) or 0)
+    profit_stress = margin_stress = None
+    if arv_drop or cost_rise:
+        stressed = _project(
+            land_cost, arv, build, costs, flood_surcharge,
+            arv_mult=1 - arv_drop, constr_mult=1 + cost_rise,
+        )
+        profit_stress = stressed["profit"]
+        margin_stress = stressed["margin"]
+
+    # --- Matriz de sensibilidade (choques univariados, ranking do estrago) ---
+    sensitivity: list[dict] = []
+    matrix_cfg = stress_cfg.get("matrix") or {}
+    if matrix_cfg and arv:
+        shocks: list[tuple[str, dict]] = []
+        v = float(matrix_cfg.get("arv_drop_pct", 0) or 0)
+        if v:
+            shocks.append((f"saída −{v:.0%}", {"arv_mult": 1 - v}))
+        v = float(matrix_cfg.get("construction_rise_pct", 0) or 0)
+        if v:
+            shocks.append((f"obra +{v:.0%}", {"constr_mult": 1 + v}))
+        v = float(matrix_cfg.get("extra_months", 0) or 0)
+        if v:
+            shocks.append((f"venda +{v:.0f} meses", {"extra_months": v}))
+        v = float(matrix_cfg.get("carrying_rate_add", 0) or 0)
+        if v:
+            shocks.append((f"juros/carrego +{v * 100:.0f}pp", {"rate_add": v}))
+        v = float(matrix_cfg.get("insurance_add_annual", 0) or 0)
+        if v:
+            shocks.append((f"seguro +US$ {v:,.0f}/ano", {"insurance_add": v}))
+        for label, kwargs in shocks:
+            shocked = _project(land_cost, arv, build, costs, flood_surcharge, **kwargs)
+            sensitivity.append({
+                "label": label,
+                "margin": round(shocked["margin"], 4),
+                "delta_pp": round((margin - shocked["margin"]) * 100, 2),
+            })
+        sensitivity.sort(key=lambda s: s["delta_pp"], reverse=True)
+
+    # --- Regras de corte ---
+    reasons: list[str] = []
+    is_viable = True
+    market = classify_market(listing, cfg)
+    if tier_label:
+        reasons.append(f"• segmento: {tier_label}")
+    if site_prep_cost or impact_fees:
+        reasons.append(
+            f"• custos de lote: US$ {site_prep_cost:,.0f} preparação"
+            f" + US$ {impact_fees:,.0f} impact fees"
+        )
+    if flood_insurance_cost:
+        reasons.append(
+            f"⚠ seguro de enchente no carrego: +US$ {flood_insurance_cost:,.0f} "
+            f"(zona FEMA de alto risco)"
+        )
+    if market["region"]:
+        reasons.append(
+            f"• mercado: {market['priority']} - {market['region']}"
+            + (f" ({market['zip_code']})" if market["zip_code"] else "")
+        )
+    elif market["priority"]:
+        reasons.append(f"• mercado: {market['priority']}")
+    for flag in market["risk_flags"]:
+        reasons.append(f"⚠ {flag}")
+    county, _ = resolve_county(listing, cfg)
+    if county and (site_prep_cost or impact_fees):
+        reasons.append(f"• custos de lote calibrados para county {county}")
+    if arv_source == "rentcast_avm":
+        extra = ""
+        if listing.arv_comps_count:
+            extra += f" ({listing.arv_comps_count} comps"
+            if listing.arv_confidence:
+                extra += f", {listing.arv_confidence}"
+            extra += ")"
+        reasons.append(f"✓ ARV por comps RentCast{extra}")
+        # Divergência grande entre comps e premissa = incerteza no ARV.
+        warn_pct = float(cfg.raw.get("arv", {}).get("divergence_warn_pct", 0.15) or 0)
+        if warn_pct and config_arv:
+            divergence = (arv - config_arv) / config_arv
+            if abs(divergence) > warn_pct:
+                flag = (
+                    f"ARV dos comps diverge {divergence:+.0%} da premissa "
+                    f"(US$ {config_arv:,.0f}) — conferir comps"
+                )
+                reasons.append(f"⚠ {flag}")
+                market["risk_flags"].append(flag)
+    else:
+        reasons.append("⚠ ARV por premissa fixa do config")
+    if margin_stress is not None:
+        label = (
+            f"• pessimista (ARV −{arv_drop:.0%}, obra +{cost_rise:.0%}): "
+            f"lucro US$ {profit_stress:,.0f}, margem {margin_stress:.1%}"
+        )
+        reasons.append(label)
+        if margin_stress < 0:
+            market["risk_flags"].append("margem negativa no cenario pessimista")
+    top_shocks = [s for s in sensitivity if s["delta_pp"] > 0][:2]
+    if top_shocks:
+        detail = "; ".join(
+            f"{s['label']} → margem {s['margin']:.1%} (−{s['delta_pp']:.1f}pp)"
+            for s in top_shocks
+        )
+        reasons.append(f"• sensibilidade — maior estrago: {detail}")
+        if any(s["margin"] < 0 for s in top_shocks):
+            market["risk_flags"].append(
+                f"margem vira negativa com {top_shocks[0]['label']}"
+            )
+
+    max_land_price = float(rules.get("max_land_price") or 0)
+    if max_land_price > 0:
+        if land_cost <= max_land_price:
+            reasons.append(f"✓ terreno US$ {land_cost:,.0f} ≤ teto US$ {max_land_price:,.0f}")
+        else:
+            is_viable = False
+            reasons.append(f"✗ terreno US$ {land_cost:,.0f} > teto US$ {max_land_price:,.0f}")
+
+    target_margin = float(rules["target_margin"])
+    if margin >= target_margin:
+        reasons.append(f"✓ margem {margin:.1%} ≥ alvo {target_margin:.0%}")
+    else:
+        is_viable = False
+        reasons.append(f"✗ margem {margin:.1%} < alvo {target_margin:.0%}")
+
+    max_land = float(rules["max_land_to_total_investment_pct"])
+    if land_to_total_investment <= max_land:
+        reasons.append(
+            f"✓ terreno {land_to_total_investment:.1%} do investimento total ≤ {max_land:.0%}"
+        )
+    else:
+        is_viable = False
+        reasons.append(
+            f"✗ terreno {land_to_total_investment:.1%} do investimento total > {max_land:.0%}"
+        )
+
+    min_lot = float(rules.get("min_lot_size_sqft") or 0)
+    if min_lot > 0:
+        if listing.lot_size_sqft is None:
+            reasons.append("⚠ tamanho do lote desconhecido (verifique manualmente)")
+        elif listing.lot_size_sqft >= min_lot:
+            reasons.append(f"✓ lote {listing.lot_size_sqft:,.0f} sqft ≥ {min_lot:,.0f}")
+        else:
+            is_viable = False
+            reasons.append(f"✗ lote {listing.lot_size_sqft:,.0f} sqft < mínimo {min_lot:,.0f}")
+
+    if rules.get("require_residential_zoning"):
+        residential = _looks_residential(listing.zoning, rules)
+        if residential is False:
+            is_viable = False
+            reasons.append(f"✗ zoneamento '{listing.zoning}' não parece residencial")
+        elif residential is None:
+            if rules.get("require_known_zoning"):
+                is_viable = False
+                reasons.append("✗ zoneamento desconhecido; exige conferência antes do alerta")
+            else:
+                reasons.append("⚠ zoneamento desconhecido (verifique manualmente)")
+        else:
+            reasons.append("✓ zoneamento residencial")
+
+    if rules.get("manual_review_only"):
+        is_viable = False
+        reasons.append(
+            "⚠ segmento exige análise manual de localização/bairro antes de virar alerta"
+        )
+
+    county, _ = resolve_county(listing, cfg)
+    return ViabilityResult(
+        listing=listing,
+        arv=arv,
+        land_cost=land_cost,
+        construction_cost=construction_cost,
+        soft_cost=soft_cost,
+        purchase_closing_cost=purchase_closing_cost,
+        contingency_cost=contingency_cost,
+        site_prep_cost=site_prep_cost,
+        impact_fees=impact_fees,
+        carrying_cost=carrying_cost,
+        selling_cost=selling_cost,
+        total_cost=total_cost,
+        profit=profit,
+        margin=margin,
+        profit_stress=profit_stress,
+        margin_stress=margin_stress,
+        sensitivity=sensitivity,
+        land_to_arv=land_to_arv,
+        land_to_total_investment=land_to_total_investment,
+        is_viable=is_viable,
+        tier=tier_label,
+        reasons=reasons,
+        arv_source=arv_source,
+        arv_comps_count=listing.arv_comps_count,
+        arv_confidence=listing.arv_confidence,
+        flood_zone=str(listing.raw.get("_flood_zone") or ""),
+        flood_high_risk=flood_high_risk,
+        zip_code=market["zip_code"],
+        county=county,
+        cadastral_use=str(listing.raw.get("_cadastral_use") or ""),
+        cadastral_use_code=str(listing.raw.get("_cadastral_use_code") or ""),
+        cadastral_use_source=str(listing.raw.get("_cadastral_use_source") or ""),
+        cadastral_use_status=str(listing.raw.get("_cadastral_use_status") or ""),
+        market_region=market["region"],
+        market_priority=market["priority"],
+        market_score=market["score"],
+        market_strategies=market["strategies"],
+        risk_flags=market["risk_flags"],
+    )

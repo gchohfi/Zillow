@@ -1,0 +1,488 @@
+"""Testes da fórmula de viabilidade e do geofiltro."""
+
+import pytest
+
+from src.config import Config
+from src.datasource import MockDataSource
+from src.geo import haversine_km, within_radius
+from src.models import Listing
+from src.viability import evaluate, resolve_county
+
+
+def _cfg() -> Config:
+    return Config(raw={
+        "search": {"center_lat": 28.5384, "center_lng": -81.3789, "radius_km": 180},
+        "build": {
+            "living_area_sqft": 2000,
+            "construction_cost_per_sqft": 165,
+            "resale_price_per_sqft": 330,
+        },
+        "costs": {"soft_cost_pct": 0.10, "carrying_cost_pct": 0.06, "selling_cost_pct": 0.07},
+        "rules": {
+            "target_margin": 0.18,
+            "max_land_price": 0,
+            "max_land_to_total_investment_pct": 0.27,
+            "require_residential_zoning": True,
+            "require_known_zoning": False,
+        },
+        "market_strategy": {
+            "default_priority": "fora",
+            "default_score": 0,
+            "zip_groups": [
+                {
+                    "label": "Lake Nona / Narcoossee",
+                    "priority": "Alta",
+                    "score": 10,
+                    "zips": ["32827"],
+                    "strategies": ["SFR/BTR"],
+                    "risk_flags": ["checar utilities"],
+                }
+            ],
+        },
+        "storage": {"db_path": ":memory:"},
+    })
+
+
+def test_haversine_orlando_to_tampa():
+    # Orlando → Tampa ~ 130 km
+    dist = haversine_km(28.5384, -81.3789, 27.9506, -82.4572)
+    assert 120 < dist < 145
+
+
+def test_within_radius():
+    inside, dist = within_radius(28.5384, -81.3789, 28.41, -81.50, 180)
+    assert inside and dist < 30
+
+
+def test_county_uses_parcel_source_before_zip_and_maps_titusville():
+    cfg = _cfg()
+    cfg.raw["county_costs"] = {
+        "counties": {"orange": {"impact_fees": 25_000}, "brevard": {}},
+        "zip_to_county": {"32827": "orange", "32780": "brevard"},
+    }
+
+    titusville = Listing(
+        id="titusville",
+        price=50_000,
+        lat=28.51,
+        lng=-80.84,
+        address="2929 Long Lake Dr, Titusville, FL 32780",
+        zoning="residential",
+    )
+    county, costs = resolve_county(titusville, cfg)
+    assert county == "brevard"
+    assert costs == {}
+    assert evaluate(titusville, cfg).county == "brevard"
+
+    # Dado parcelar específico prevalece sobre o ZIP.
+    parcel_county = Listing(
+        id="parcel-county",
+        price=50_000,
+        lat=28.51,
+        lng=-80.84,
+        address="Orlando, FL 32827",
+        raw={"_parcel_data": {"county_name": "Brevard County"}},
+    )
+    assert resolve_county(parcel_county, cfg)[0] == "brevard"
+
+
+def test_cheap_lot_is_viable():
+    lot = Listing(
+        id="a",
+        price=95_000,
+        lat=28.41,
+        lng=-81.50,
+        address="123 Main St, Orlando, FL 32827",
+        zoning="residential",
+    )
+    r = evaluate(lot, _cfg())
+    assert r.is_viable
+    assert r.margin >= 0.18
+    assert r.land_to_total_investment <= 0.27
+    assert r.land_to_total_investment == r.land_cost / r.total_cost
+    assert r.arv_source == "config"
+    assert r.zip_code == "32827"
+    assert r.market_priority == "Alta"
+    assert r.market_region == "Lake Nona / Narcoossee"
+    assert r.market_score == 10
+    assert r.market_strategies == ["SFR/BTR"]
+    assert r.risk_flags == ["checar utilities"]
+
+
+def test_listing_arv_estimate_overrides_config_arv():
+    lot = Listing(
+        id="arv",
+        price=95_000,
+        lat=28.41,
+        lng=-81.50,
+        zoning="residential",
+        arv_estimate=500_000,
+        arv_source="rentcast_avm",
+        arv_comps_count=5,
+        arv_confidence="high",
+    )
+    r = evaluate(lot, _cfg())
+    assert r.arv == 500_000
+    assert r.arv_source == "rentcast_avm"
+    assert r.arv_comps_count == 5
+    assert any("ARV por comps RentCast" in reason for reason in r.reasons)
+
+
+def test_zero_price_is_rejected():
+    lot = Listing(id="zero", price=0, lat=28.41, lng=-81.50, zoning="residential")
+    try:
+        evaluate(lot, _cfg())
+    except ValueError as exc:
+        assert "preco invalido" in str(exc)
+    else:
+        raise AssertionError("zero-price listing should not be evaluated as viable")
+
+
+def test_expensive_lot_fails_margin_or_ratio():
+    lot = Listing(id="b", price=240_000, lat=28.6, lng=-81.2, zoning="residential")
+    r = evaluate(lot, _cfg())
+    assert not r.is_viable
+
+
+def test_max_land_price_rejects_otherwise_viable_lot():
+    cfg = _cfg()
+    cfg.raw["rules"]["max_land_price"] = 50_000
+    lot = Listing(id="price-cap", price=95_000, lat=28.41, lng=-81.50, zoning="residential")
+    r = evaluate(lot, cfg)
+    assert not r.is_viable
+    assert any("teto US$ 50,000" in reason for reason in r.reasons)
+
+
+def test_manual_review_only_segment_never_auto_approves():
+    cfg = _cfg()
+    cfg.raw["tiers"] = [
+        {"name": "alto_padrao", "label": "Alto padrão", "max_price": None,
+         "rules": {"manual_review_only": True}},
+    ]
+    lot = Listing(id="high", price=95_000, lat=28.41, lng=-81.50, zoning="residential")
+    r = evaluate(lot, cfg)
+    assert not r.is_viable
+    assert any("análise manual" in reason for reason in r.reasons)
+
+
+def test_commercial_zoning_rejected():
+    lot = Listing(id="c", price=95_000, lat=28.41, lng=-81.50, zoning="commercial")
+    r = evaluate(lot, _cfg())
+    assert not r.is_viable
+
+
+def test_unknown_zoning_rejected_when_required():
+    cfg = _cfg()
+    cfg.raw["rules"]["require_known_zoning"] = True
+    lot = Listing(id="unknown-zoning", price=95_000, lat=28.41, lng=-81.50, zoning=None)
+
+    r = evaluate(lot, cfg)
+
+    assert not r.is_viable
+    assert any("zoneamento desconhecido" in reason for reason in r.reasons)
+
+
+def test_configurable_residential_zoning_hint_passes():
+    cfg = _cfg()
+    cfg.raw["rules"]["require_known_zoning"] = True
+    cfg.raw["rules"]["residential_zoning_hints"] = ["mx-r"]
+    lot = Listing(id="mixed-residential", price=95_000, lat=28.41, lng=-81.50, zoning="MX-R")
+
+    r = evaluate(lot, cfg)
+
+    assert r.is_viable
+    assert any("zoneamento residencial" in reason for reason in r.reasons)
+
+
+def test_tier_classification_and_override():
+    cfg = _cfg()
+    cfg.raw["tiers"] = [
+        {"name": "baixo_padrao", "label": "Baixo padrão", "max_price": 50000},
+        {"name": "medio_padrao", "label": "Médio padrão", "max_price": 300000,
+         "rules": {"target_margin": 0.50}},  # margem absurda -> reprova o de médio
+        {"name": "alto_padrao", "label": "Alto padrão", "max_price": None},
+    ]
+    baixo = Listing(id="t1", price=45_000, lat=28.41, lng=-81.50, zoning="residential")
+    rb = evaluate(baixo, cfg)
+    assert rb.tier == "Baixo padrão"
+
+    medio = Listing(id="t2", price=120_000, lat=28.41, lng=-81.50, zoning="residential")
+    rm = evaluate(medio, cfg)
+    assert rm.tier == "Médio padrão"
+    assert not rm.is_viable          # override de margem 50% derruba
+
+    alto = Listing(id="t3", price=600_000, lat=28.41, lng=-81.50, zoning="residential")
+    assert evaluate(alto, cfg).tier == "Alto padrão"
+
+
+def test_small_lot_rejected():
+    cfg = _cfg()
+    cfg.raw["rules"]["min_lot_size_sqft"] = 5000
+    small = Listing(id="d", price=95_000, lat=28.41, lng=-81.50,
+                    zoning="residential", lot_size_sqft=3000)
+    assert not evaluate(small, cfg).is_viable
+    big = Listing(id="e", price=95_000, lat=28.41, lng=-81.50,
+                  zoning="residential", lot_size_sqft=8000)
+    assert evaluate(big, cfg).is_viable
+
+
+def test_real_config_evaluates_mock_listings():
+    cfg = Config.load()
+    listings = MockDataSource().fetch_new_land_listings(cfg)
+    results = [evaluate(listing, cfg) for listing in listings if listing.price > 0]
+    assert results
+    assert cfg.search["radius_km"] == 80
+    assert cfg.rules["max_land_price"] == 0
+    assert cfg.raw["tiers"][0]["rules"]["max_land_price"] == 50000
+    assert cfg.raw["tiers"][2]["rules"]["manual_review_only"] is True
+    assert "max_land_to_total_investment_pct" in cfg.rules
+    assert all(hasattr(result, "land_to_total_investment") for result in results)
+
+
+def test_site_prep_and_impact_fees_enter_total_cost():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    base = {
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 15000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.50,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+    }
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3)
+    result = evaluate(listing, Config(raw=base))
+
+    # 50k terreno + 100k obra + 15k preparação + 20k impact fees
+    assert result.total_cost == 185_000
+    assert result.site_prep_cost == 15_000
+    assert result.impact_fees == 20_000
+    assert any("custos de lote" in reason for reason in result.reasons)
+
+    # Sem os custos de lote, o total cai exatamente 35k.
+    base["costs"]["site_prep_cost"] = 0
+    base["costs"]["impact_fees"] = 0
+    lighter = evaluate(listing, Config(raw=base))
+    assert lighter.total_cost == 150_000
+    assert not any("custos de lote" in reason for reason in lighter.reasons)
+
+
+def test_tier_can_override_site_costs():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = Config(raw={
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 15000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.50,
+            "require_residential_zoning": False,
+        },
+        "tiers": [{
+            "name": "baixo",
+            "max_price": 60000,
+            "costs": {"site_prep_cost": 25000, "impact_fees": 15000},
+        }],
+    })
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), cfg)
+    assert result.site_prep_cost == 25_000
+    assert result.impact_fees == 15_000
+
+
+def _stress_cfg(extra=None):
+    from src.config import Config
+    raw = {
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {"soft_cost_pct": 0.0, "selling_cost_pct": 0.0},
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.60,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+        "stress": {"arv_drop_pct": 0.10, "construction_rise_pct": 0.10},
+    }
+    if extra:
+        raw.update(extra)
+    return Config(raw=raw)
+
+
+def test_stress_scenario_computes_pessimistic_margin():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), _stress_cfg())
+
+    # Base: ARV 300k, custo 150k -> lucro 150k. Pessimista: ARV 270k,
+    # obra 110k -> custo 160k -> lucro 110k, margem 110/270.
+    assert result.profit == 150_000
+    assert result.profit_stress == 110_000
+    assert round(result.margin_stress, 4) == round(110_000 / 270_000, 4)
+    assert any("pessimista" in reason for reason in result.reasons)
+
+
+def test_stress_negative_margin_becomes_risk_flag():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = _stress_cfg({"stress": {"arv_drop_pct": 0.60, "construction_rise_pct": 0.10}})
+    result = evaluate(Listing(id="x", price=50_000, lat=28.5, lng=-81.3), cfg)
+    assert result.margin_stress < 0
+    assert any("pessimista" in flag for flag in result.risk_flags)
+
+
+def test_county_costs_override_by_zip():
+    from src.config import Config
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = Config(raw={
+        "build": {
+            "living_area_sqft": 1000,
+            "construction_cost_per_sqft": 100,
+            "resale_price_per_sqft": 300,
+        },
+        "costs": {
+            "soft_cost_pct": 0.0,
+            "selling_cost_pct": 0.0,
+            "site_prep_cost": 10000,
+            "impact_fees": 20000,
+        },
+        "rules": {
+            "target_margin": 0.10,
+            "max_land_to_total_investment_pct": 0.60,
+            "require_residential_zoning": False,
+        },
+        "tiers": [],
+        "county_costs": {
+            "counties": {"osceola": {"impact_fees": 30000}},
+            "zip_to_county": {"34771": "osceola"},
+        },
+    })
+
+    in_osceola = evaluate(
+        Listing(id="a", price=50_000, lat=28.2, lng=-81.2,
+                address="123 Trail, St. Cloud, FL 34771"),
+        cfg,
+    )
+    assert in_osceola.impact_fees == 30_000
+    assert any("county osceola" in reason for reason in in_osceola.reasons)
+
+    unknown_zip = evaluate(
+        Listing(id="b", price=50_000, lat=28.2, lng=-81.2, address="Sem ZIP"),
+        cfg,
+    )
+    assert unknown_zip.impact_fees == 20_000
+
+
+def test_avm_divergence_from_premise_flags_attention():
+    from src.models import Listing
+    from src.viability import evaluate
+
+    cfg = _stress_cfg({"arv": {"divergence_warn_pct": 0.15}})
+    listing = Listing(id="x", price=50_000, lat=28.5, lng=-81.3)
+    listing.arv_estimate = 400_000   # premissa é 300k -> +33%
+    listing.arv_source = "rentcast_avm"
+    listing.arv_comps_count = 6
+
+    result = evaluate(listing, cfg)
+    assert any("diverge" in reason for reason in result.reasons)
+    assert any("diverge" in flag for flag in result.risk_flags)
+
+    # Divergência pequena não gera atenção.
+    listing.arv_estimate = 310_000
+    calm = evaluate(listing, cfg)
+    assert not any("diverge" in flag for flag in calm.risk_flags)
+
+
+def test_flood_high_risk_adds_insurance_surcharge_to_carrying():
+    cfg_raw = _cfg().raw
+    cfg_raw["red_flags"] = {"flood": {"insurance_surcharge_annual": 6000}}
+    cfg_raw["costs"]["carrying_months"] = 12
+    cfg = Config(raw=cfg_raw)
+
+    base = Listing(id="dry", price=50000, lat=28.5, lng=-81.4,
+                   zoning="residential")
+    flooded = Listing(id="wet", price=50000, lat=28.5, lng=-81.4,
+                      zoning="residential", raw={"_flood_high_risk": True,
+                                                 "_flood_zone": "AE"})
+
+    result_dry = evaluate(base, cfg)
+    result_wet = evaluate(flooded, cfg)
+
+    assert result_wet.carrying_cost == pytest.approx(result_dry.carrying_cost + 6000)
+    assert result_wet.total_cost == pytest.approx(result_dry.total_cost + 6000)
+    assert result_wet.flood_high_risk is True
+    assert result_wet.flood_zone == "AE"
+    assert any("seguro de enchente" in reason for reason in result_wet.reasons)
+    assert result_dry.flood_high_risk is False
+
+
+def test_sensitivity_matrix_ranks_worst_shocks():
+    cfg_raw = _cfg().raw
+    cfg_raw["costs"] = {
+        "soft_cost_pct": 0.10,
+        "carrying_cost_annual_pct": 0.09,
+        "carrying_months": 12,
+        "selling_cost_pct": 0.07,
+    }
+    cfg_raw["stress"] = {
+        "arv_drop_pct": 0.10,
+        "construction_rise_pct": 0.10,
+        "matrix": {
+            "arv_drop_pct": 0.10,
+            "construction_rise_pct": 0.15,
+            "extra_months": 6,
+            "carrying_rate_add": 0.02,
+            "insurance_add_annual": 5000,
+        },
+    }
+    cfg = Config(raw=cfg_raw)
+    listing = Listing(id="s1", price=50000, lat=28.5, lng=-81.4,
+                      zoning="residential")
+
+    result = evaluate(listing, cfg)
+
+    assert len(result.sensitivity) == 5
+    deltas = [s["delta_pp"] for s in result.sensitivity]
+    assert deltas == sorted(deltas, reverse=True)      # ranking pelo estrago
+    assert all(s["delta_pp"] > 0 for s in result.sensitivity)
+    labels = {s["label"] for s in result.sensitivity}
+    assert any("saída" in x for x in labels)
+    assert any("obra" in x for x in labels)
+    assert any("venda +6" in x for x in labels)
+    assert any("sensibilidade — maior estrago" in reason for reason in result.reasons)
+    # choque univariado não contamina o cenário-base
+    base_margin = result.margin
+    cfg_raw["stress"]["matrix"] = {}
+    result_no_matrix = evaluate(listing, Config(raw=cfg_raw))
+    assert result_no_matrix.margin == base_margin
+    assert result_no_matrix.sensitivity == []

@@ -1,0 +1,262 @@
+"""Tests for the static dashboard generator."""
+
+import csv
+import json
+import re
+from datetime import datetime, timedelta, timezone
+
+NOW = datetime.now(timezone.utc)
+RECENT = NOW.isoformat(timespec="seconds")
+YESTERDAY = (NOW - timedelta(days=1)).isoformat(timespec="seconds")
+OLD = (NOW - timedelta(days=90)).isoformat(timespec="seconds")
+
+from src.config import Config
+from src.site import build_payload, generate_site
+
+
+def _cfg(tmp_path, period_days=30):
+    return Config(raw={
+        "output": {
+            "csv_path": str(tmp_path / "opportunities.csv"),
+            "evaluations_csv_path": str(tmp_path / "evaluations.csv"),
+        },
+        "site": {"dir": str(tmp_path / "site"), "period_days": period_days},
+    })
+
+
+def _write_evaluations(tmp_path, rows):
+    fields = [
+        "found_at", "is_viable", "review_status", "review_reason", "tier",
+        "zip_code", "market_priority", "market_region", "market_strategies",
+        "risk_flags", "reasons", "id", "address", "normalized_address",
+        "lat", "lng", "distance_km", "land_price", "arv", "arv_source",
+        "arv_comps_count", "arv_confidence", "total_cost",
+        "purchase_closing_cost", "contingency_cost", "profit", "margin",
+        "land_to_total_investment", "land_to_arv", "zoning", "url",
+        "lot_size_acres", "price_per_acre",
+    ]
+    with open(tmp_path / "evaluations.csv", "w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fields})
+
+
+def test_generate_site_without_data_still_writes_page(tmp_path):
+    index = generate_site(_cfg(tmp_path))
+    assert index.exists()
+    html = index.read_text(encoding="utf-8")
+    assert "Orlando Land Detector" in html
+    assert 'class="app-shell"' in html
+    assert 'class="sidebar"' in html
+    assert 'class="dashboard-grid"' in html
+    assert 'id="search"' in html
+    assert 'aria-label="Indicadores do radar"' in html
+    assert "app.regrid.com/map#ll=" in html
+    data = json.loads((index.parent / "data.json").read_text(encoding="utf-8"))
+    assert "rows" in data and "generated_at" in data
+
+
+def test_build_payload_reads_evaluations_and_parses_numbers(tmp_path):
+    _write_evaluations(tmp_path, [
+        {
+            "found_at": RECENT,
+            "is_viable": "yes",
+            "review_status": "viavel",
+            "address": "123 Main St, Orlando, FL 32801",
+            "lat": "28.5", "lng": "-81.3",
+            "land_price": "45000", "arv": "420000",
+            "profit": "80000", "margin": "0.190",
+        },
+        {
+            "found_at": YESTERDAY,
+            "is_viable": "no",
+            "review_status": "radar_zoneamento_pendente",
+            "review_reason": "numeros bons; falta confirmar zoneamento",
+            "address": "Lot 9, Clermont, FL 34711",
+            "land_price": "38000", "arv": "310000",
+            "profit": "60000", "margin": "0.194",
+        },
+    ])
+
+    payload = build_payload(_cfg(tmp_path))
+    assert payload["total_rows"] == 2
+    assert payload["source"] == "evaluations"
+    # Mais recente primeiro.
+    assert payload["rows"][0]["address"].startswith("123 Main")
+    assert payload["rows"][0]["margin"] == 0.19
+    assert payload["rows"][1]["review_status"] == "radar_zoneamento_pendente"
+
+
+def test_payload_separates_capture_data_freshness_and_publication(tmp_path):
+    captured = "2026-08-10T10:00:00+00:00"
+    published = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    _write_evaluations(tmp_path, [{
+        "found_at": "2026-08-01T08:00:00+00:00",
+        "review_status": "reprovado",
+        "id": "old-data",
+    }])
+    status_path = tmp_path / "scan-status.json"
+    status_path.write_text(json.dumps({
+        "source_result": "failed",
+        "source_captured_at": captured,
+        "diagnostics": ["RentCast recusou a chamada (HTTP 403)."],
+    }), encoding="utf-8")
+    cfg = _cfg(tmp_path)
+    cfg.raw["output"]["run_status_path"] = str(status_path)
+
+    payload = build_payload(cfg, now=published)
+
+    assert payload["source_result"] == "failed"
+    assert payload["source_captured_at"] == captured
+    assert payload["latest_evaluation_at"] == "2026-08-01T08:00:00+00:00"
+    assert payload["published_at"] == published.isoformat(timespec="seconds")
+    assert payload["published_at"] != payload["latest_evaluation_at"]
+
+
+def test_generate_site_embeds_data_and_copies_csvs(tmp_path):
+    _write_evaluations(tmp_path, [{
+        "found_at": RECENT,
+        "is_viable": "yes",
+        "review_status": "viavel",
+        "address": "123 Main St, Orlando, FL 32801",
+        "land_price": "45000",
+    }])
+    (tmp_path / "opportunities.csv").write_text("found_at\n", encoding="utf-8")
+
+    index = generate_site(_cfg(tmp_path))
+    html = index.read_text(encoding="utf-8")
+
+    match = re.search(r"const DATA = (\{.*?\});\n", html, re.DOTALL)
+    assert match, "payload JSON deve estar embutido no HTML"
+    data = json.loads(match.group(1))
+    assert data["rows"][0]["address"] == "123 Main St, Orlando, FL 32801"
+
+    assert (index.parent / "evaluations.csv").exists()
+    assert (index.parent / "opportunities.csv").exists()
+
+
+def test_build_payload_filters_by_period(tmp_path):
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "review_status": "viavel", "address": "Nova"},
+        {"found_at": OLD, "review_status": "viavel", "address": "Antiga"},
+    ])
+    payload = build_payload(_cfg(tmp_path, period_days=30))
+    addresses = [row["address"] for row in payload["rows"]]
+    assert "Nova" in addresses
+    assert "Antiga" not in addresses
+
+
+def test_regions_include_prefetched_thesis_zips(tmp_path):
+    from src.region_signals import SignalsCache
+
+    cfg = _cfg(tmp_path)
+    cfg.raw["market_strategy"] = {"zip_groups": [
+        {"label": "Lake Nona", "priority": "Alta", "zips": ["32827"]},
+    ]}
+    cfg.raw["region_signals"] = {
+        "enabled": True,
+        "cache_db": str(tmp_path / "signals.db"),
+        "cache_days": 30,
+    }
+    cache = SignalsCache(str(tmp_path / "signals.db"))
+    cache.put("32827", {"score": 8.1, "summary": ["6 escolas em 3 km", "renda +20.0% em 5 anos"]})
+    cache.close()
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "review_status": "viavel", "address": "X", "zip_code": "34787"},
+    ])
+
+    payload = build_payload(cfg)
+    zips = {g["zip"]: g for g in payload["regions"]}
+    assert "32827" in zips
+    assert zips["32827"]["region"] == "Lake Nona"
+    assert zips["32827"]["growth_score"] == 8.1
+    assert "escolas" in zips["32827"]["growth_signals"]
+
+
+def test_reasons_trail_only_for_open_opportunities(tmp_path):
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "review_status": "radar_zoneamento_pendente",
+         "address": "Radar", "reasons": "✓ margem 30% ≥ alvo | ✗ zoneamento desconhecido"},
+        {"found_at": RECENT, "review_status": "reprovado",
+         "address": "Reprovada", "reasons": "✗ margem 5% < alvo 18%"},
+    ])
+    payload = build_payload(_cfg(tmp_path))
+    by_addr = {row["address"]: row for row in payload["rows"]}
+    assert "zoneamento desconhecido" in by_addr["Radar"]["reasons"]
+    assert by_addr["Reprovada"]["reasons"] == ""
+
+
+def test_generate_site_writes_memo_for_viable_and_radar_only(tmp_path):
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "is_viable": "yes", "review_status": "viavel",
+         "id": "opp-1", "address": "1 Buy St, Orlando, FL 32827",
+         "lat": "28.5", "lng": "-81.3", "land_price": "45000", "arv": "420000",
+         "profit": "80000", "margin": "0.190",
+         "risk_flags": "checar HOA", "reasons": "✓ margem ok | ⚠ checar HOA"},
+        {"found_at": RECENT, "is_viable": "no",
+         "review_status": "radar_zoneamento_pendente",
+         "id": "opp 2/estranho", "address": "2 Hold St", "lat": "28.5", "lng": "-81.3"},
+        {"found_at": RECENT, "is_viable": "no", "review_status": "reprovada",
+         "id": "opp-3", "address": "3 Pass St", "lat": "28.5", "lng": "-81.3"},
+    ])
+
+    index = generate_site(_cfg(tmp_path))
+    memo_dir = index.parent / "memo"
+
+    viable_memo = (memo_dir / "opp-1.html").read_text(encoding="utf-8")
+    assert "COMPRAR" in viable_memo
+    assert "1 Buy St" in viable_memo
+    assert "checar HOA" in viable_memo
+    radar_memo = (memo_dir / "opp-2-estranho.html").read_text(encoding="utf-8")
+    assert "NEGOCIAR" in radar_memo
+    assert not (memo_dir / "opp-3.html").exists()
+
+    data = json.loads((index.parent / "data.json").read_text(encoding="utf-8"))
+    memos = {r["id"]: r.get("memo") for r in data["rows"]}
+    assert memos.get("opp-1") == "memo/opp-1.html"
+    assert not memos.get("opp-3")
+
+
+def test_dashboard_includes_compare_section(tmp_path):
+    index = generate_site(_cfg(tmp_path))
+    html = index.read_text(encoding="utf-8")
+    assert "tbl-compare" in html
+    assert "renderCompare" in html
+    assert "Comparador" in html
+
+
+def test_dashboard_uses_shared_filters_and_decision_first_copy(tmp_path):
+    index = generate_site(_cfg(tmp_path))
+    html = index.read_text(encoding="utf-8")
+
+    assert "renderCompare(visible)" in html
+    assert 'id="opportunity-count"' in html
+    assert "Para revisar agora" in html
+    assert "Aguardando confirmação" in html
+    assert "Melhor margem em análise" in html
+    assert "Elegível financeiramente" in html
+    assert "Abrir análise" in html
+    assert 'id="undo-toast"' in html
+    assert 'aria-live="polite"' in html
+    assert ".kpi-secondary { display: none; }" in html
+
+
+def test_development_memo_shows_land_basis_not_spec_math(tmp_path):
+    fields_extra = {"lot_size_acres": "6.18", "price_per_acre": "121359",
+                    "margin": "-3.307", "land_price": "750000"}
+    _write_evaluations(tmp_path, [
+        {"found_at": RECENT, "is_viable": "no",
+         "review_status": "radar_desenvolvimento", "id": "dev-1",
+         "address": "15525 Villa City Rd, Groveland, FL 34736",
+         "lat": "28.6", "lng": "-81.8", **fields_extra},
+    ])
+
+    index = generate_site(_cfg(tmp_path))
+    memo = (index.parent / "memo" / "dev-1.html").read_text(encoding="utf-8")
+
+    assert "ESTUDAR COMO DESENVOLVIMENTO" in memo
+    assert "Preço por acre" in memo
+    assert "6.18 acres" in memo
+    assert "Números-base (spec build)" not in memo
+    assert "-330" not in memo  # margem de casa única não aparece
