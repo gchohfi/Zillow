@@ -180,6 +180,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             "A fonte principal falhou nesta rodada. O resultado nao representa zero listagens.\n\n"
             + "\n".join(f"- {err}" for err in source_diagnostics[:3]),
             dry_run=dry_run,
+            delivery_store=store,
         )
         store.close()
         return RunOutcome("failed", source_status, source_captured_at, len(listings))
@@ -317,7 +318,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             _close_resources(store, signals_cache, zoning_cache)
             raise
 
-    if notify(viable_new, dry_run=dry_run) is False:
+    if notify(viable_new, dry_run=dry_run, delivery_store=store) is False:
         for result in viable_new:
             store.record_stage(result.listing, "failed", error="required_channel_failed")
         record_runtime_failure("notification:required_channel_failed")
@@ -334,6 +335,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             radar_candidates,
             dry_run=dry_run,
             max_messages=int(radar_cfg.get("max_candidates", 10) or 10),
+            delivery_store=store,
         )
         if radar_ok is False:
             for result in radar_candidates:
@@ -362,7 +364,11 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             viable_new=len(viable_new),
             dashboard_url=env("DASHBOARD_URL"),
         )
-        if send_whatsapp_status(summary, dry_run=dry_run) is False:
+        if send_whatsapp_status(
+            summary,
+            dry_run=dry_run,
+            delivery_store=store,
+        ) is False:
             record_runtime_failure("run_summary:required_channel_failed")
             _close_resources(store, signals_cache, zoning_cache)
             raise RuntimeError("required run-summary channel failed")

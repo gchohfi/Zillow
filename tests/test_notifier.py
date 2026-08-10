@@ -6,7 +6,9 @@ from src.notifier import (
     _format_whatsapp_result,
     _maybe_send_zapi_whatsapp,
     _maybe_send_zapi_whatsapp_results,
+    notify,
 )
+from src.storage import SeenStore
 
 
 class _Response:
@@ -192,3 +194,37 @@ def test_whatsapp_result_includes_memo_link_when_dashboard_set(monkeypatch):
     monkeypatch.setenv("DASHBOARD_URL", "https://example.github.io/Zillow/")
     message = _format_whatsapp_result(_result())
     assert "Memorando: https://example.github.io/Zillow/memo/" in message
+
+
+def test_partial_channel_failure_retries_only_failed_message(monkeypatch, tmp_path):
+    calls = []
+    telegram_attempts = 0
+    store = SeenStore(str(tmp_path / "seen.db"))
+
+    def send_email(subject, message):
+        calls.append(("email", subject, message))
+        return True
+
+    def send_telegram(message):
+        nonlocal telegram_attempts
+        telegram_attempts += 1
+        calls.append(("telegram", message))
+        return telegram_attempts > 1
+
+    def send_whatsapp(message):
+        calls.append(("whatsapp", message))
+        return True
+
+    monkeypatch.setattr("src.notifier._maybe_send_email", send_email)
+    monkeypatch.setattr("src.notifier._maybe_send_telegram", send_telegram)
+    monkeypatch.setattr("src.notifier._maybe_send_zapi_whatsapp", send_whatsapp)
+
+    result = _result()
+    assert notify([result], delivery_store=store) is False
+    store.close()
+
+    store = SeenStore(str(tmp_path / "seen.db"))
+    assert notify([result], delivery_store=store) is True
+    store.close()
+
+    assert [call[0] for call in calls] == ["email", "telegram", "whatsapp", "telegram"]

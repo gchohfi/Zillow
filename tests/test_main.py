@@ -99,7 +99,9 @@ def test_source_failure_sends_status_message(monkeypatch, tmp_path):
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
     monkeypatch.setattr(
         "src.main.send_message",
-        lambda subject, body, dry_run=False: messages.append((subject, body, dry_run)),
+        lambda subject, body, dry_run=False, delivery_store=None: messages.append(
+            (subject, body, dry_run)
+        ),
     )
 
     outcome = run(use_mock=False, dry_run=False)
@@ -240,7 +242,9 @@ def test_required_channel_failure_is_retryable_without_duplicate_csv(monkeypatch
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
     monkeypatch.setattr(
         "src.main.notify",
-        lambda results, dry_run=False: attempts.append(len(results)) or len(attempts) > 1,
+        lambda results, dry_run=False, delivery_store=None: (
+            attempts.append(len(results)) or len(attempts) > 1
+        ),
     )
 
     with pytest.raises(RuntimeError, match="required notification"):
@@ -297,7 +301,10 @@ def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):
 
     monkeypatch.setattr("src.main.Config.load", lambda: cfg)
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
-    monkeypatch.setattr("src.main.notify", lambda results, dry_run=False: calls.append(len(results)))
+    monkeypatch.setattr(
+        "src.main.notify",
+        lambda results, dry_run=False, delivery_store=None: calls.append(len(results)),
+    )
 
     run(use_mock=True, dry_run=True)
     run(use_mock=True, dry_run=True)
@@ -339,12 +346,20 @@ def test_run_sends_financially_good_unknown_zoning_to_radar(monkeypatch, tmp_pat
 
     monkeypatch.setattr("src.main.Config.load", lambda: cfg)
     monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
-    monkeypatch.setattr("src.main.notify", lambda results, dry_run=False: viable_calls.append(len(results)))
+    monkeypatch.setattr(
+        "src.main.notify",
+        lambda results, dry_run=False, delivery_store=None: viable_calls.append(len(results)),
+    )
     monkeypatch.setattr(
         "src.main.notify_radar",
-        lambda results, dry_run=False, max_messages=10: radar_calls.append(len(results)),
+        lambda results, dry_run=False, max_messages=10, delivery_store=None: radar_calls.append(
+            len(results)
+        ),
     )
-    monkeypatch.setattr("src.main.send_whatsapp_status", lambda message, dry_run=False: None)
+    monkeypatch.setattr(
+        "src.main.send_whatsapp_status",
+        lambda message, dry_run=False, delivery_store=None: None,
+    )
 
     run(use_mock=True, dry_run=True)
 

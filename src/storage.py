@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -47,6 +48,16 @@ class SeenStore:
                 stage       TEXT NOT NULL,
                 updated_at  TEXT NOT NULL,
                 last_error  TEXT
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_deliveries (
+                channel      TEXT NOT NULL,
+                message_hash TEXT NOT NULL,
+                delivered_at TEXT NOT NULL,
+                PRIMARY KEY (channel, message_hash)
             )
             """
         )
@@ -232,6 +243,36 @@ class SeenStore:
             (self.key_for(listing),),
         ).fetchone()
         return (row[0], row[1]) if row else None
+
+    @staticmethod
+    def _alert_message_hash(message: str) -> str:
+        return hashlib.sha256(message.encode("utf-8")).hexdigest()
+
+    def has_alert_delivery(self, channel: str, message: str) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM alert_deliveries
+            WHERE channel = ? AND message_hash = ?
+            """,
+            (channel, self._alert_message_hash(message)),
+        ).fetchone()
+        return row is not None
+
+    def record_alert_delivery(self, channel: str, message: str) -> None:
+        """Confirma uma entrega somente depois de o canal aceitar a mensagem."""
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO alert_deliveries (
+                channel, message_hash, delivered_at
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                channel,
+                self._alert_message_hash(message),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
