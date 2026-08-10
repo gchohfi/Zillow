@@ -15,6 +15,7 @@ from .datasource import get_source
 from .diagnostics import source_error_flags
 from .due_diligence import assess_due_diligence
 from .geo import within_radius
+from .models import Listing
 from .notifier import notify, notify_radar, send_message, send_whatsapp_status
 from .red_flags import apply_red_flags, mark_flood_zone
 from .rental import apply_rental_analysis, enrich_rent
@@ -85,6 +86,26 @@ def _close_resources(
     if zoning_cache is not None:
         zoning_cache.close()
     store.close()
+
+
+def _passes_initial_filter(
+    listing: Listing,
+    cfg: Config,
+    *,
+    flood: object | None = None,
+) -> bool:
+    """Decide se vale consumir uma chamada de AVM para esta listagem.
+
+    A primeira avaliação usa apenas dados já disponíveis e as premissas locais.
+    Itens financeiramente reprovados não consultam o AVM; candidatos viáveis ou
+    de Radar seguem para enriquecimento e depois são avaliados novamente.
+    """
+    preliminary = evaluate(listing, cfg)
+    if flood is not None:
+        apply_red_flags(preliminary, cfg, flood=flood)
+    assess_due_diligence(preliminary, cfg)
+    classify_review_status(preliminary, cfg)
+    return preliminary.review_status != "reprovado"
 
 
 def _format_run_summary(
@@ -235,12 +256,17 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
 
         flood = None
         if not use_mock:
-            enrich_arv(listing, cfg)
             # Zona FEMA antes da avaliação: alto risco encarece o seguro
             # do carrego dentro do próprio motor de viabilidade.
             flood = mark_flood_zone(listing, cfg)
 
         try:
+            # O AVM é cobrado por request. Só consulta candidatos novos que já
+            # passaram por raio, deduplicação, disponibilidade e pela peneira
+            # financeira local. A avaliação definitiva roda novamente com o
+            # ARV externo quando ele estiver disponível.
+            if not use_mock and _passes_initial_filter(listing, cfg, flood=flood):
+                enrich_arv(listing, cfg)
             result = evaluate(listing, cfg)
         except Exception as exc:  # noqa: BLE001
             n_failed += 1
