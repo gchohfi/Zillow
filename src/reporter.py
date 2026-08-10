@@ -6,6 +6,7 @@ import csv
 import os
 from datetime import datetime, timezone
 
+from .address_normalizer import address_fingerprint, has_address_locator, normalize_address
 from .config import Config
 from .models import ViabilityResult
 
@@ -198,6 +199,52 @@ def _ensure_header(
     return False
 
 
+def _price_key(value: object) -> str:
+    try:
+        return str(round(float(value)))
+    except (TypeError, ValueError):
+        return "unknown"
+
+
+def _row_key(row: dict[str, str]) -> str:
+    price = _price_key(row.get("land_price"))
+    address = row.get("address", "")
+    normalized = row.get("normalized_address") or (
+        normalize_address(address) if has_address_locator(address) else ""
+    )
+    if normalized:
+        return f"addr:{normalized}:{price}"
+    return f"id:{row.get('id', '')}:{price}"
+
+
+def _result_key(result: ViabilityResult) -> str:
+    listing = result.listing
+    price = _price_key(result.land_cost)
+    fingerprint = address_fingerprint(listing)
+    if fingerprint:
+        return f"addr:{fingerprint}:{price}"
+    return f"id:{listing.id}:{price}"
+
+
+def _pending_results(
+    results: list[ViabilityResult],
+    csv_path: str,
+) -> list[ViabilityResult]:
+    """Remove retries já persistidos e duplicatas do mesmo lote/preço."""
+    existing: set[str] = set()
+    if os.path.exists(csv_path) and os.path.getsize(csv_path) > 0:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            existing = {_row_key(row) for row in csv.DictReader(fh)}
+
+    pending = []
+    for result in results:
+        key = _result_key(result)
+        if key not in existing:
+            pending.append(result)
+            existing.add(key)
+    return pending
+
+
 def _development_row(r: ViabilityResult) -> dict[str, object]:
     """Campos de triagem para áreas de desenvolvimento."""
     return {
@@ -294,6 +341,10 @@ def append_results(
         return
 
     is_new = _ensure_header(csv_path, _COLUMNS, cfg=cfg)
+    results = _pending_results(results, csv_path)
+    if not results:
+        print(f"[csv] nenhuma oportunidade nova para acrescentar em {csv_path}")
+        return
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:
@@ -371,6 +422,10 @@ def append_evaluations(
         return
 
     is_new = _ensure_header(csv_path, _EVALUATION_COLUMNS, cfg=cfg)
+    results = _pending_results(results, csv_path)
+    if not results:
+        print(f"[csv] nenhuma avaliação nova para acrescentar em {csv_path}")
+        return
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with open(csv_path, "a", newline="", encoding="utf-8") as fh:

@@ -182,7 +182,7 @@ red_flags:
     provider: fema_nfhl
     # FEMA National Flood Hazard Layer. A consulta é por ponto (lat/lng).
     query_url: https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query
-    timeout_seconds: 12
+    timeout_seconds: 5       # enriquecimento auxiliar: falha rápido e segue com atenção
     fail_open: true          # se FEMA falhar, não perde oportunidade; só marca atenção
     block_high_risk: false   # por enquanto alerta, mas destaca AE/VE/SFHA como red flag
     high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
@@ -243,6 +243,7 @@ zoning_lookup:
       fields: [zoning_description, zoning, usedesc, usecode, landuse, future_land_use]
       zoning_fields: [zoning_description, zoning]
       cadastral_use_fields: [usedesc, landuse, usecode]
+      timeout_seconds: 12
 
     - name: fl_parcelas_estaduais
       # Cadastro estadual da Flórida (FGIO/FDOR, ~10,8 mi de parcelas) com
@@ -251,6 +252,8 @@ zoning_lookup:
       fields: [DOR_UC, PA_UC]   # códigos de uso do padrão NAL do Florida DOR
       zoning_fields: []
       cadastral_use_fields: [DOR_UC, PA_UC]
+      timeout_seconds: 5
+      retries: 0
 
     - name: fl_saude_parcelas_county
       # Plano B: parcelas por county (Fla. Dept. of Health) — camadas bem
@@ -266,6 +269,8 @@ zoning_lookup:
       fields: [DOR_UC, PA_UC]
       zoning_fields: []
       cadastral_use_fields: [DOR_UC, PA_UC]
+      timeout_seconds: 5
+      retries: 0
 
 # ---- Radar de revisão manual ----
 # Não transforma em "oportunidade viável"; só manda para conferência quando os
@@ -541,6 +546,7 @@ storage:
 output:
   csv_path: opportunities.csv   # oportunidades viáveis são acrescentadas aqui
   evaluations_csv_path: evaluations.csv  # toda listagem nova avaliada, viável ou não
+  run_status_path: scan_status.json  # captura/fonte separada da publicação do dashboard
 
 # ---- Dashboard estático publicável (GitHub Pages) ----
 site:

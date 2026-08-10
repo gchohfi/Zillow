@@ -39,6 +39,17 @@ class SeenStore:
         )
         self._ensure_normalized_address_column()
         self._backfill_normalized_addresses()
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS processing_ledger (
+                seen_key    TEXT PRIMARY KEY,
+                id          TEXT NOT NULL,
+                stage       TEXT NOT NULL,
+                updated_at  TEXT NOT NULL,
+                last_error  TEXT
+            )
+            """
+        )
         self.conn.commit()
 
     def _migrate_schema(self) -> None:
@@ -159,6 +170,7 @@ class SeenStore:
 
     def mark_seen(self, listing: Listing) -> None:
         key = self.key_for(listing)
+        now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
             "INSERT OR IGNORE INTO seen_listings ("
             "seen_key, id, first_seen, price, address, normalized_address, payload"
@@ -166,14 +178,60 @@ class SeenStore:
             (
                 key,
                 listing.id,
-                datetime.now(timezone.utc).isoformat(),
+                now,
                 listing.price,
                 listing.address,
                 listing.normalized_address or normalize_address(listing.address),
                 json.dumps(listing.raw, default=str),
             ),
         )
+        self._record_stage(listing, "completed", updated_at=now)
         self.conn.commit()
+
+    def record_stage(
+        self,
+        listing: Listing,
+        stage: str,
+        *,
+        error: str | None = None,
+    ) -> None:
+        """Registra progresso sem consumir a chave de deduplicação."""
+        self._record_stage(listing, stage, error=error)
+        self.conn.commit()
+
+    def _record_stage(
+        self,
+        listing: Listing,
+        stage: str,
+        *,
+        error: str | None = None,
+        updated_at: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO processing_ledger (seen_key, id, stage, updated_at, last_error)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(seen_key) DO UPDATE SET
+                id = excluded.id,
+                stage = excluded.stage,
+                updated_at = excluded.updated_at,
+                last_error = excluded.last_error
+            """,
+            (
+                self.key_for(listing),
+                listing.id,
+                stage,
+                updated_at or datetime.now(timezone.utc).isoformat(),
+                error,
+            ),
+        )
+
+    def get_stage(self, listing: Listing) -> tuple[str, str | None] | None:
+        row = self.conn.execute(
+            "SELECT stage, last_error FROM processing_ledger WHERE seen_key = ?",
+            (self.key_for(listing),),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
 
     def close(self) -> None:
         self.conn.close()

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import abc
 import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -22,8 +24,31 @@ from .config import Config, env
 from .models import Listing
 
 
+@dataclass
+class SourceOutcome:
+    """Resultado operacional da captura, separado da quantidade de listagens."""
+
+    status: str = "healthy"
+    captured_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
+    )
+    diagnostics: list[str] = field(default_factory=list)
+
+
 class DataSource(abc.ABC):
     """Interface comum de qualquer fonte de listagens."""
+
+    def __init__(self) -> None:
+        self.outcome = SourceOutcome()
+
+    def _finish(self, *, succeeded: int, failed: int, diagnostics: list[str]) -> None:
+        if failed and not succeeded:
+            status = "failed"
+        elif failed:
+            status = "degraded"
+        else:
+            status = "healthy"
+        self.outcome = SourceOutcome(status=status, diagnostics=diagnostics[:5])
 
     @abc.abstractmethod
     def fetch_new_land_listings(self, cfg: Config) -> list[Listing]:
@@ -82,6 +107,7 @@ class MockDataSource(DataSource):
     """Fonte de exemplo — roda sem chave nenhuma, para testar o pipeline."""
 
     def fetch_new_land_listings(self, cfg: Config) -> list[Listing]:
+        self._finish(succeeded=1, failed=0, diagnostics=[])
         return [
             Listing(
                 id="mock-001", price=95_000, lat=28.4100, lng=-81.5000,
@@ -117,6 +143,7 @@ class RealtorRapidAPISource(DataSource):
     """Listagens via RapidAPI, configurável pelo bloco `datasource.rapidapi`."""
 
     def __init__(self, ds_cfg: dict[str, Any]) -> None:
+        super().__init__()
         self.cfg = ds_cfg.get("rapidapi", {})
         self.key = env("RAPIDAPI_KEY")
         self.host = self.cfg.get("host") or env("RAPIDAPI_HOST")
@@ -145,6 +172,8 @@ class RealtorRapidAPISource(DataSource):
         ]
 
         by_id: dict[str, Listing] = {}
+        succeeded = failed = 0
+        diagnostics: list[str] = []
         for zip_code in [z for z in postal_codes if z]:
             params = dict(params_base)
             params[zip_param] = zip_code
@@ -155,22 +184,36 @@ class RealtorRapidAPISource(DataSource):
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
                 if status == 403:
-                    print("  [erro] RapidAPI recusou a chamada: sua conta nao esta assinada nesta API.")
+                    diagnostic = "RapidAPI recusou a chamada (HTTP 403)."
+                    diagnostics.append(diagnostic)
+                    failed += 1
+                    print(f"  [erro] {diagnostic}")
                     break
                 if status == 429:
-                    print("  [erro] RapidAPI recusou a chamada: limite de requisicoes atingido.")
+                    diagnostic = "RapidAPI recusou a chamada (HTTP 429)."
+                    diagnostics.append(diagnostic)
+                    failed += 1
+                    print(f"  [erro] {diagnostic}")
                     break
-                print(f"  [aviso] falha ao buscar CEP {zip_code}: {exc}")
+                diagnostic = f"RapidAPI falhou no CEP {zip_code} (HTTP {status or 'desconhecido'})."
+                diagnostics.append(diagnostic)
+                failed += 1
+                print(f"  [aviso] {diagnostic}")
                 continue
             except requests.RequestException as exc:
-                print(f"  [aviso] falha ao buscar CEP {zip_code}: {exc}")
+                diagnostic = f"RapidAPI falhou no CEP {zip_code} ({type(exc).__name__})."
+                diagnostics.append(diagnostic)
+                failed += 1
+                print(f"  [aviso] {diagnostic}")
                 continue
+            succeeded += 1
             for item in raw_items:
                 listing = self._parse(item, fields)
                 if listing.id and listing.id not in by_id:
                     by_id[listing.id] = listing
             print(f"  CEP {zip_code}: {len(raw_items)} listagem(ns)")
 
+        self._finish(succeeded=succeeded, failed=failed, diagnostics=diagnostics)
         return list(by_id.values())
 
     def _request(self, ctx: dict[str, Any], params_in: dict[str, Any]) -> list[dict[str, Any]]:
@@ -218,6 +261,7 @@ class RentCastSource(DataSource):
     """Listagens de terrenos via RentCast Sale Listings API."""
 
     def __init__(self, ds_cfg: dict[str, Any]) -> None:
+        super().__init__()
         self.cfg = ds_cfg.get("rentcast", {})
         self.errors: list[str] = []
         self.key = env("RENTCAST_API_KEY")
@@ -242,6 +286,7 @@ class RentCastSource(DataSource):
         ]
 
         by_id: dict[str, Listing] = {}
+        succeeded = failed = 0
         for point in points:
             name = point.get("name", "ponto")
             for page in range(max_pages):
@@ -253,23 +298,30 @@ class RentCastSource(DataSource):
                     if status in (401, 403):
                         msg = "RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano."
                         self.errors.append(msg)
+                        failed += 1
                         print(f"  [erro] {msg}")
+                        self._finish(succeeded=succeeded, failed=failed, diagnostics=self.errors)
                         return list(by_id.values())
                     if status == 429:
                         msg = "RentCast recusou a chamada: limite de requisicoes atingido."
                         self.errors.append(msg)
+                        failed += 1
                         print(f"  [erro] {msg}")
+                        self._finish(succeeded=succeeded, failed=failed, diagnostics=self.errors)
                         return list(by_id.values())
-                    msg = f"falha ao buscar RentCast {name}: {exc}"
+                    msg = f"falha ao buscar RentCast {name} (HTTP {status or 'desconhecido'})"
                     self.errors.append(msg)
+                    failed += 1
                     print(f"  [aviso] {msg}")
                     break
                 except requests.RequestException as exc:
-                    msg = f"falha ao buscar RentCast {name}: {exc}"
+                    msg = f"falha ao buscar RentCast {name} ({type(exc).__name__})"
                     self.errors.append(msg)
+                    failed += 1
                     print(f"  [aviso] {msg}")
                     break
 
+                succeeded += 1
                 for item in raw_items:
                     listing = self._parse(item)
                     if listing.id and listing.id not in by_id:
@@ -279,6 +331,7 @@ class RentCastSource(DataSource):
                 if len(raw_items) < limit:
                     break
 
+        self._finish(succeeded=succeeded, failed=failed, diagnostics=self.errors)
         return list(by_id.values())
 
     def _request(self, point: dict[str, Any], limit: int, offset: int) -> list[dict[str, Any]]:

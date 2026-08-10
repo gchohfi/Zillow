@@ -109,6 +109,18 @@ def test_zapi_whatsapp_skips_when_not_configured(monkeypatch):
     assert calls == []
 
 
+def test_zapi_failure_is_visible_to_orchestrator(monkeypatch):
+    monkeypatch.setenv("ZAPI_INSTANCE_ID", "instance-id")
+    monkeypatch.setenv("ZAPI_INSTANCE_TOKEN", "instance-token")
+    monkeypatch.setenv("ZAPI_PHONE", "15551234567")
+    monkeypatch.setattr(
+        "src.notifier.requests.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("channel down")),
+    )
+
+    assert _maybe_send_zapi_whatsapp("hello") is False
+
+
 def test_whatsapp_result_format_includes_details_and_links():
     message = _format_whatsapp_result(_result())
 

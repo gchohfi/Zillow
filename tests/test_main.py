@@ -1,5 +1,9 @@
 """Tests for the batch orchestration behavior."""
 
+import csv
+
+import pytest
+
 from src.config import Config
 from src.main import _format_run_summary, run
 from src.models import Listing
@@ -82,6 +86,7 @@ def test_unavailable_listing_is_not_marked_seen(monkeypatch, tmp_path):
 def test_source_failure_sends_status_message(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["run_status_path"] = str(tmp_path / "scan-status.json")
     messages = []
 
     class Source:
@@ -97,11 +102,156 @@ def test_source_failure_sends_status_message(monkeypatch, tmp_path):
         lambda subject, body, dry_run=False: messages.append((subject, body, dry_run)),
     )
 
-    run(use_mock=False, dry_run=False)
+    outcome = run(use_mock=False, dry_run=False)
 
+    assert outcome.status == "failed"
+    assert outcome.source_status == "failed"
     assert messages
     assert messages[0][0] == "[Orlando Land] Falha na fonte de dados"
     assert "timeout na RentCast" in messages[0][1]
+
+
+def test_legitimate_empty_source_is_healthy(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["run_status_path"] = str(tmp_path / "scan-status.json")
+    cfg.raw["region_signals"]["enabled"] = False
+    cfg.raw["zoning_lookup"]["enabled"] = False
+    cfg.raw["notifications"]["whatsapp_run_summary"]["enabled"] = False
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return []
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+
+    outcome = run(use_mock=False, dry_run=False)
+
+    assert outcome.status == "healthy"
+    assert outcome.source_status == "healthy"
+
+
+def test_intra_run_duplicate_is_evaluated_once(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["notifications"]["whatsapp_run_summary"]["enabled"] = False
+    _zero_site_costs(cfg)
+    evaluated = []
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [
+                Listing(id="one", price=12_000, lat=28.5384, lng=-81.3789,
+                        address="123 Main Street, Orlando, FL 32801", zoning="residential",
+                        lot_size_sqft=8000),
+                Listing(id="two", price=12_000, lat=28.5384, lng=-81.3789,
+                        address="123 Main St Orlando Florida 32801", zoning="residential",
+                        lot_size_sqft=8000),
+            ]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    real_evaluate = __import__("src.main", fromlist=["evaluate"]).evaluate
+    monkeypatch.setattr(
+        "src.main.evaluate",
+        lambda listing, run_cfg: evaluated.append(listing.id) or real_evaluate(listing, run_cfg),
+    )
+
+    run(use_mock=True, dry_run=False)
+
+    with open(tmp_path / "evaluations.csv", newline="", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) == 1
+    assert evaluated == ["one"]
+
+
+def test_persistence_failure_does_not_consume_candidate(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["output"]["run_status_path"] = str(tmp_path / "scan-status.json")
+    cfg.raw["region_signals"]["enabled"] = False
+    cfg.raw["zoning_lookup"]["enabled"] = False
+    cfg.raw["red_flags"]["flood"]["enabled"] = False
+    cfg.raw["arv"]["enabled"] = False
+    cfg.raw["rental"]["enabled"] = False
+    cfg.raw["notifications"]["whatsapp_run_summary"]["enabled"] = False
+    cfg.raw["availability"] = {
+        "require_status_active": False,
+        "reject_removed": False,
+        "max_last_seen_hours": 0,
+        "max_listed_age_days": 0,
+        "require_mls_number": False,
+    }
+    _zero_site_costs(cfg)
+    listing = Listing(id="crash", price=12_000, lat=28.5384, lng=-81.3789,
+                      address="Crash lot", zoning="residential", lot_size_sqft=8000)
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [listing]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr(
+        "src.main.append_evaluations",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("cancelled")),
+    )
+
+    with pytest.raises(OSError, match="cancelled"):
+        run(use_mock=False, dry_run=False)
+
+    from src.storage import SeenStore
+
+    store = SeenStore(str(tmp_path / "seen.db"))
+    assert store.is_new(listing)
+    assert store.get_stage(listing) == ("failed", "OSError")
+    store.close()
+
+
+def test_required_channel_failure_is_retryable_without_duplicate_csv(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["output"]["run_status_path"] = str(tmp_path / "scan-status.json")
+    cfg.raw["region_signals"]["enabled"] = False
+    cfg.raw["zoning_lookup"]["enabled"] = False
+    cfg.raw["red_flags"]["flood"]["enabled"] = False
+    cfg.raw["arv"]["enabled"] = False
+    cfg.raw["rental"]["enabled"] = False
+    cfg.raw["notifications"]["whatsapp_run_summary"]["enabled"] = False
+    cfg.raw["availability"] = {
+        "require_status_active": False, "reject_removed": False,
+        "max_last_seen_hours": 0, "max_listed_age_days": 0,
+        "require_mls_number": False,
+    }
+    _zero_site_costs(cfg)
+    listing = Listing(id="retry", price=12_000, lat=28.5384, lng=-81.3789,
+                      address="Retry lot", zoning="residential", lot_size_sqft=8000)
+    attempts = []
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [listing]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr(
+        "src.main.notify",
+        lambda results, dry_run=False: attempts.append(len(results)) or len(attempts) > 1,
+    )
+
+    with pytest.raises(RuntimeError, match="required notification"):
+        run(use_mock=False, dry_run=False)
+    run(use_mock=False, dry_run=False)
+
+    with open(tmp_path / "evaluations.csv", newline="", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) == 1
+    with open(tmp_path / "opportunities.csv", newline="", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) == 1
+    assert attempts == [1, 1]
 
 
 def test_run_summary_reports_empty_round():
