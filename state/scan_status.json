@@ -1,11 +1,9 @@
 {
   "source": "RentCastSource",
-  "source_result": "failed",
-  "source_captured_at": "2026-08-10T20:11:15+00:00",
-  "diagnostics": [
-    "RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano."
-  ],
-  "stage": "failed",
-  "listings_returned": 0,
-  "status_updated_at": "2026-08-10T20:11:15+00:00"
+  "source_result": "healthy",
+  "source_captured_at": "2026-08-10T21:15:10+00:00",
+  "diagnostics": [],
+  "stage": "fetched",
+  "listings_returned": 106,
+  "status_updated_at": "2026-08-10T21:15:10+00:00"
 }
