@@ -42,6 +42,7 @@ Arquivos principais:
 | `src/memo.py` | Memorando de decisão por oportunidade (comprar/negociar/descartar) |
 | `src/site.py` | Dashboard estático (GitHub Pages) + `data.json` + memorandos + comparador |
 | `src/summary.py` | Resumo diário "sinal de vida" no WhatsApp |
+| `src/reconcile.py` | Relatório dry-run de chaves vistas sem avaliação; nunca altera estado |
 
 ---
 
@@ -105,6 +106,25 @@ e cole (ajuste o caminho):
 A cada execução ele busca o que é novo, calcula viabilidade, grava no CSV e
 dispara os alertas. Como ele lembra o que já viu (SQLite), você só é avisado de
 oportunidades **inéditas**.
+
+### Saúde da fonte, frescor e reconciliação
+
+O scanner distingue fonte `healthy`, `degraded` e `failed`. Uma resposta vazia
+válida continua saudável; rejeição ou erro da fonte principal faz o comando
+terminar com status não verde. O dashboard mostra separadamente quando a fonte
+foi capturada, até quando há dados avaliados e quando a página foi publicada —
+republicar a página não significa que chegou dado novo.
+
+Para auditar chaves marcadas como vistas que não chegaram ao CSV, use o comando
+somente leitura abaixo sobre uma cópia/restauração dos arquivos de estado:
+
+```bash
+python -m src.reconcile \
+  --db-path seen_listings.db \
+  --evaluations-csv evaluations.csv
+```
+
+O comando apenas imprime JSON; não reprocessa, apaga, edita ou publica dados.
 
 ### Agendamento automático na nuvem (GitHub Actions)
 

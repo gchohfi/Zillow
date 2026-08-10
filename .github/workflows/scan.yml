@@ -72,6 +72,7 @@ jobs:
             region_signals.db-*
             opportunities.csv
             evaluations.csv
+            scan_status.json
           key: orlando-land-state-${{ github.run_id }}
           restore-keys: |
             orlando-land-state-
@@ -210,6 +211,7 @@ jobs:
             region_signals.db-*
             opportunities.csv
             evaluations.csv
+            scan_status.json
           key: orlando-land-state-${{ github.run_id }}
 
       - name: Upload scan artifacts
@@ -221,6 +223,7 @@ jobs:
             opportunities.csv
             evaluations.csv
             seen_listings.db
+            scan_status.json
           if-no-files-found: ignore
           retention-days: 14
 
@@ -247,7 +250,7 @@ jobs:
           # roda depois. Guarda a memória do scanner de forma permanente.
           set -e
           mkdir -p /tmp/state
-          for f in seen_listings.db region_signals.db opportunities.csv evaluations.csv; do
+          for f in seen_listings.db region_signals.db opportunities.csv evaluations.csv scan_status.json; do
             [ -f "$f" ] && cp "$f" /tmp/state/
           done
           git config user.name "github-actions[bot]"
