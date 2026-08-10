@@ -1,9 +1,9 @@
 {
   "source": "RentCastSource",
   "source_result": "healthy",
-  "source_captured_at": "2026-08-10T22:11:33+00:00",
+  "source_captured_at": "2026-08-10T23:10:02+00:00",
   "diagnostics": [],
   "stage": "completed",
   "listings_returned": 106,
-  "status_updated_at": "2026-08-10T22:16:07+00:00"
+  "status_updated_at": "2026-08-10T23:11:04+00:00"
 }
