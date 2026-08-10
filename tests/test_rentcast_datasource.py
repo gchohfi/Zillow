@@ -79,6 +79,7 @@ def test_rentcast_fetches_land_with_api_key_and_pagination(monkeypatch):
     assert calls[0]["params"]["limit"] == 1
     assert calls[0]["params"]["offset"] == 0
     assert calls[1]["params"]["offset"] == 1
+    assert source.outcome.status == "healthy"
 
 
 def test_rentcast_retries_transient_timeout(monkeypatch):
@@ -111,3 +112,34 @@ def test_rentcast_retries_transient_timeout(monkeypatch):
 
     assert [listing.id for listing in listings] == ["a"]
     assert calls == [60, 60]
+    assert source.outcome.status == "healthy"
+
+
+def test_rentcast_rejection_is_failed_with_safe_diagnostic(monkeypatch):
+    import requests
+
+    monkeypatch.setenv("RENTCAST_API_KEY", "secret-test-key")
+
+    def rejected(*args, **kwargs):
+        response = requests.Response()
+        response.status_code = 403
+        response.url = "https://api.rentcast.io/v1/listings/sale?key=secret-test-key"
+        raise requests.HTTPError("response included secret-test-key", response=response)
+
+    monkeypatch.setattr("src.datasource.requests.get", rejected)
+    cfg = Config(raw={
+        "search": {"center_lat": 28.5384, "center_lng": -81.3789, "radius_km": 80},
+        "datasource": {},
+    })
+    source = RentCastSource({"rentcast": {
+        "max_pages": 1,
+        "retries": 0,
+        "search_points": [{"name": "Orlando", "lat": 28.5384, "lng": -81.3789}],
+    }})
+
+    assert source.fetch_new_land_listings(cfg) == []
+    assert source.outcome.status == "failed"
+    assert source.outcome.diagnostics == [
+        "RentCast recusou a chamada: confira a RENTCAST_API_KEY/plano."
+    ]
+    assert "secret-test-key" not in " ".join(source.outcome.diagnostics)

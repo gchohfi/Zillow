@@ -88,6 +88,32 @@ def test_build_payload_reads_evaluations_and_parses_numbers(tmp_path):
     assert payload["rows"][1]["review_status"] == "radar_zoneamento_pendente"
 
 
+def test_payload_separates_capture_data_freshness_and_publication(tmp_path):
+    captured = "2026-08-10T10:00:00+00:00"
+    published = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    _write_evaluations(tmp_path, [{
+        "found_at": "2026-08-01T08:00:00+00:00",
+        "review_status": "reprovado",
+        "id": "old-data",
+    }])
+    status_path = tmp_path / "scan-status.json"
+    status_path.write_text(json.dumps({
+        "source_result": "failed",
+        "source_captured_at": captured,
+        "diagnostics": ["RentCast recusou a chamada (HTTP 403)."],
+    }), encoding="utf-8")
+    cfg = _cfg(tmp_path)
+    cfg.raw["output"]["run_status_path"] = str(status_path)
+
+    payload = build_payload(cfg, now=published)
+
+    assert payload["source_result"] == "failed"
+    assert payload["source_captured_at"] == captured
+    assert payload["latest_evaluation_at"] == "2026-08-01T08:00:00+00:00"
+    assert payload["published_at"] == published.isoformat(timespec="seconds")
+    assert payload["published_at"] != payload["latest_evaluation_at"]
+
+
 def test_generate_site_embeds_data_and_copies_csvs(tmp_path):
     _write_evaluations(tmp_path, [{
         "found_at": RECENT,

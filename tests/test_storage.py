@@ -75,3 +75,19 @@ def test_seen_store_migrates_old_id_primary_key_schema(tmp_path):
     assert not store.is_new(Listing(id="abc", price=50_000, lat=28.5, lng=-81.3))
     assert store.is_new(Listing(id="abc", price=45_000, lat=28.5, lng=-81.3))
     store.close()
+
+
+def test_processing_ledger_does_not_consume_retryable_listing(tmp_path):
+    store = SeenStore(str(tmp_path / "seen.db"))
+    lot = Listing(id="ledger", price=50_000, lat=28.5, lng=-81.3)
+
+    store.record_stage(lot, "fetched")
+    store.record_stage(lot, "evaluated")
+    store.record_stage(lot, "failed", error="required_channel_failed")
+
+    assert store.get_stage(lot) == ("failed", "required_channel_failed")
+    assert store.is_new(lot)
+    store.mark_seen(lot)
+    assert store.get_stage(lot) == ("completed", None)
+    assert not store.is_new(lot)
+    store.close()

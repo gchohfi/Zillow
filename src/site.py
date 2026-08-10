@@ -144,6 +144,17 @@ def _load_rows(csv_path: str) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def _load_run_status(path: str) -> dict:
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _status_of(row: dict) -> str:
     status = str(row.get("review_status") or "").strip()
     if status:
@@ -179,6 +190,11 @@ def build_payload(cfg: Config, now: datetime | None = None) -> dict:
     if not rows:
         rows = _load_rows(output_cfg.get("csv_path", "opportunities.csv"))
         source = "opportunities"
+    run_status = _load_run_status(output_cfg.get("run_status_path", "scan_status.json"))
+    latest_evaluation_at = max(
+        (str(row.get("found_at") or "") for row in rows),
+        default="",
+    )
 
     cutoff = now - timedelta(days=period_days)
     recent = []
@@ -194,7 +210,13 @@ def build_payload(cfg: Config, now: datetime | None = None) -> dict:
         print(f"[site] {total - MAX_EMBEDDED_ROWS} linha(s) antigas fora do HTML (limite {MAX_EMBEDDED_ROWS})")
 
     return {
+        # generated_at fica como alias compatível; published_at é o nome semântico.
         "generated_at": now.isoformat(timespec="seconds"),
+        "published_at": now.isoformat(timespec="seconds"),
+        "source_captured_at": run_status.get("source_captured_at"),
+        "source_result": run_status.get("source_result", "unknown"),
+        "source_diagnostics": run_status.get("diagnostics", []),
+        "latest_evaluation_at": latest_evaluation_at or None,
         "period_days": period_days,
         "source": source,
         "total_rows": total,
@@ -784,7 +806,12 @@ _TEMPLATE = """<!DOCTYPE html>
           <h1>Orlando Land Detector</h1>
           <p>Terrenos para spec build em um raio de 80 km de Orlando, com viabilidade e sinais de valorização.</p>
         </div>
-        <div class="scan-meta"><strong>Varredura concluída</strong>Atualizado em <span id="updated">—</span></div>
+        <div class="scan-meta">
+          <strong id="source-health">Fonte sem status</strong>
+          Captura: <span id="captured">—</span><br>
+          Dado avaliado: <span id="data-freshness">—</span><br>
+          Dashboard publicado: <span id="updated">—</span>
+        </div>
       </section>
       <div class="banner-new" id="banner-new"></div>
 
@@ -932,7 +959,11 @@ const growthOf = r => {
 
 const rows = DATA.rows.map(r => ({ ...r, kind: statusKind(r.review_status) }));
 
-document.getElementById("updated").textContent = fmtDate(DATA.generated_at);
+document.getElementById("updated").textContent = fmtDate(DATA.published_at);
+document.getElementById("captured").textContent = fmtDate(DATA.source_captured_at);
+document.getElementById("data-freshness").textContent = fmtDate(DATA.latest_evaluation_at);
+const sourceLabels = { healthy: "Fonte saudável", degraded: "Fonte degradada", failed: "Fonte falhou", unknown: "Fonte sem status" };
+document.getElementById("source-health").textContent = sourceLabels[DATA.source_result] || "Fonte sem status";
 
 const viable = rows.filter(r => r.kind === "viavel");
 const radar = rows.filter(r => r.kind === "radar");

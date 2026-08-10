@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 from .config import Config, env, validate_config
 from .availability import check_availability
@@ -21,6 +25,66 @@ from .search_spec import apply_search_spec
 from .storage import SeenStore
 from .viability import evaluate
 from .zoning import ZoningCache, enrich_zoning
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    status: str
+    source_status: str
+    source_captured_at: str
+    total: int = 0
+
+
+def _source_outcome(source: object) -> tuple[str, str, list[str]]:
+    outcome = getattr(source, "outcome", None)
+    errors = list(getattr(source, "errors", []) or [])
+    status = getattr(outcome, "status", None) or ("failed" if errors else "healthy")
+    captured_at = getattr(outcome, "captured_at", None) or datetime.now(
+        timezone.utc
+    ).isoformat(timespec="seconds")
+    diagnostics = list(getattr(outcome, "diagnostics", []) or errors)
+    return status, captured_at, diagnostics[:5]
+
+
+def _write_run_status(
+    cfg: Config,
+    *,
+    source_name: str,
+    source_status: str,
+    source_captured_at: str,
+    diagnostics: list[str],
+    stage: str,
+    total: int,
+) -> None:
+    path = cfg.raw.get("output", {}).get("run_status_path", "scan_status.json")
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "source": source_name,
+        "source_result": source_status,
+        "source_captured_at": source_captured_at,
+        "diagnostics": diagnostics,
+        "stage": stage,
+        "listings_returned": total,
+        "status_updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+
+
+def _close_resources(
+    store: SeenStore,
+    signals_cache: SignalsCache | None,
+    zoning_cache: ZoningCache | None,
+) -> None:
+    if signals_cache is not None:
+        signals_cache.close()
+    if zoning_cache is not None:
+        zoning_cache.close()
+    store.close()
 
 
 def _format_run_summary(
@@ -61,20 +125,20 @@ def _format_run_summary(
     return "\n".join(lines)
 
 
-def run(use_mock: bool = False, dry_run: bool = False) -> None:
+def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
     cfg = Config.load()
     config_errors = validate_config(cfg)
     if config_errors:
         print("[config] config.yaml inválido; corrija antes de rodar:")
         for error in config_errors:
             print(f"  - {error}")
-        return
+        return RunOutcome("failed", "failed", datetime.now(timezone.utc).isoformat())
     try:
         source = get_source(cfg, use_mock)
     except RuntimeError as exc:
         print(f"[config] {exc}")
-        return
-    store = SeenStore(":memory:" if use_mock else cfg.db_path)
+        return RunOutcome("failed", "failed", datetime.now(timezone.utc).isoformat())
+    store = SeenStore(":memory:" if use_mock or dry_run else cfg.db_path)
 
     search = cfg.search
     center_lat, center_lng = search["center_lat"], search["center_lng"]
@@ -85,31 +149,57 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
 
     listings = source.fetch_new_land_listings(cfg)
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
-    source_errors = getattr(source, "errors", [])
-    if not listings and source_errors:
+    source_status, source_captured_at, source_diagnostics = _source_outcome(source)
+    source_name = "mock" if use_mock else source.__class__.__name__
+
+    def record_runtime_failure(code: str) -> None:
+        if not dry_run and not use_mock:
+            _write_run_status(
+                cfg,
+                source_name=source_name,
+                source_status=source_status,
+                source_captured_at=source_captured_at,
+                diagnostics=[*source_diagnostics, code][:5],
+                stage="failed",
+                total=len(listings),
+            )
+
+    if not dry_run and not use_mock:
+        _write_run_status(
+            cfg,
+            source_name=source_name,
+            source_status=source_status,
+            source_captured_at=source_captured_at,
+            diagnostics=source_diagnostics,
+            stage="failed" if source_status == "failed" else "fetched",
+            total=len(listings),
+        )
+    if source_status == "failed":
         send_message(
             "[Orlando Land] Falha na fonte de dados",
-            "A RentCast nao retornou listagens nesta rodada.\n\n"
-            + "\n".join(f"- {err}" for err in source_errors[:3]),
+            "A fonte principal falhou nesta rodada. O resultado nao representa zero listagens.\n\n"
+            + "\n".join(f"- {err}" for err in source_diagnostics[:3]),
             dry_run=dry_run,
+            delivery_store=store,
         )
         store.close()
-        return
+        return RunOutcome("failed", source_status, source_captured_at, len(listings))
 
     viable_new = []
     radar_candidates = []
     evaluated_results = []
+    reserved_keys: set[str] = set()
     n_out_of_radius = n_already_seen = n_unavailable = n_not_viable = n_failed = 0
 
     signals_cfg = cfg.raw.get("region_signals", {})
     signals_cache = None
-    if signals_cfg.get("enabled", False) and not use_mock:
+    if signals_cfg.get("enabled", False) and not use_mock and not dry_run:
         signals_cache = SignalsCache(signals_cfg.get("cache_db", "region_signals.db"))
 
     zoning_cfg = cfg.raw.get("zoning_lookup", {})
     zoning_cache = None
     n_zoning_confirmed = 0
-    if zoning_cfg.get("enabled", False) and not use_mock:
+    if zoning_cfg.get("enabled", False) and not use_mock and not dry_run:
         zoning_cache = ZoningCache(zoning_cfg.get("cache_db", "region_signals.db"))
 
     for listing in listings:
@@ -121,9 +211,12 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             n_out_of_radius += 1
             continue
 
-        if not store.is_new(listing):
+        key = SeenStore.key_for(listing)
+        if key in reserved_keys or not store.is_new(listing):
             n_already_seen += 1
             continue
+        reserved_keys.add(key)
+        store.record_stage(listing, "fetched")
 
         availability_reasons = []
         if not use_mock:
@@ -151,7 +244,11 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             result = evaluate(listing, cfg)
         except Exception as exc:  # noqa: BLE001
             n_failed += 1
-            print(f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: {exc}")
+            store.record_stage(listing, "failed", error=type(exc).__name__)
+            print(
+                f"  [aviso] listagem {listing.id or '(sem id)'} nao avaliada: "
+                f"{type(exc).__name__}"
+            )
             continue
         result.reasons.extend(availability_reasons)
         if flood is not None:
@@ -178,8 +275,8 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             enrich_rent(listing, cfg)
             apply_rental_analysis(result, cfg)
         evaluated_results.append(result)
+        store.record_stage(listing, "evaluated")
 
-        store.mark_seen(listing)   # marca como visto somente depois da avaliação
         if result.is_viable:
             viable_new.append(result)
         elif is_radar_candidate(result):
@@ -194,22 +291,65 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
     if zoning_cache is not None:
         print(f"  [zoning] zoning legal confirmado via GIS: {n_zoning_confirmed}")
 
-    # Grava as oportunidades viáveis na planilha CSV.
-    csv_path = cfg.raw.get("output", {}).get("csv_path")
-    if csv_path and viable_new:
-        append_results(viable_new, csv_path, cfg=cfg)
-    evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
-    if evaluations_csv_path and evaluated_results:
-        append_evaluations(evaluated_results, evaluations_csv_path, cfg=cfg)
+    rejected_results = [
+        result
+        for result in evaluated_results
+        if not result.is_viable and result not in radar_candidates
+    ]
 
-    notify(viable_new, dry_run=dry_run)
+    # Dry-run não grava banco/CSV; em execução real, outputs obrigatórios vêm
+    # antes de qualquer confirmação em seen_listings.
+    csv_path = cfg.raw.get("output", {}).get("csv_path")
+    evaluations_csv_path = cfg.raw.get("output", {}).get("evaluations_csv_path")
+    if not dry_run:
+        try:
+            if evaluations_csv_path and evaluated_results:
+                append_evaluations(evaluated_results, evaluations_csv_path, cfg=cfg)
+            if csv_path and viable_new:
+                append_results(viable_new, csv_path, cfg=cfg)
+            for result in evaluated_results:
+                store.record_stage(result.listing, "outputs_written")
+            for result in rejected_results:
+                store.mark_seen(result.listing)
+        except Exception as exc:
+            for result in evaluated_results:
+                store.record_stage(result.listing, "failed", error=type(exc).__name__)
+            record_runtime_failure(f"persistence:{type(exc).__name__}")
+            _close_resources(store, signals_cache, zoning_cache)
+            raise
+
+    if notify(viable_new, dry_run=dry_run, delivery_store=store) is False:
+        for result in viable_new:
+            store.record_stage(result.listing, "failed", error="required_channel_failed")
+        record_runtime_failure("notification:required_channel_failed")
+        _close_resources(store, signals_cache, zoning_cache)
+        raise RuntimeError("required notification channel failed")
+    if not dry_run:
+        for result in viable_new:
+            store.record_stage(result.listing, "alerted")
+            store.mark_seen(result.listing)
+
     radar_cfg = cfg.raw.get("radar", {})
     if radar_cfg.get("enabled", False) and radar_cfg.get("send_whatsapp", True):
-        notify_radar(
+        radar_ok = notify_radar(
             radar_candidates,
             dry_run=dry_run,
             max_messages=int(radar_cfg.get("max_candidates", 10) or 10),
+            delivery_store=store,
         )
+        if radar_ok is False:
+            for result in radar_candidates:
+                store.record_stage(result.listing, "failed", error="required_channel_failed")
+            record_runtime_failure("radar_notification:required_channel_failed")
+            _close_resources(store, signals_cache, zoning_cache)
+            raise RuntimeError("required radar notification channel failed")
+        if not dry_run:
+            for result in radar_candidates:
+                store.record_stage(result.listing, "alerted")
+                store.mark_seen(result.listing)
+    elif not dry_run:
+        for result in radar_candidates:
+            store.mark_seen(result.listing)
     if cfg.raw.get("notifications", {}).get("whatsapp_run_summary", {}).get("enabled", False):
         summary = _format_run_summary(
             source_name="mock" if use_mock else source.__class__.__name__,
@@ -224,7 +364,14 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             viable_new=len(viable_new),
             dashboard_url=env("DASHBOARD_URL"),
         )
-        send_whatsapp_status(summary, dry_run=dry_run)
+        if send_whatsapp_status(
+            summary,
+            dry_run=dry_run,
+            delivery_store=store,
+        ) is False:
+            record_runtime_failure("run_summary:required_channel_failed")
+            _close_resources(store, signals_cache, zoning_cache)
+            raise RuntimeError("required run-summary channel failed")
 
     # Depois dos alertas (para não atrasá-los), completa os sinais das
     # regiões-alvo que ainda não estão em cache — alimenta o dashboard.
@@ -233,10 +380,21 @@ def run(use_mock: bool = False, dry_run: bool = False) -> None:
             prefetch_config_zips(cfg, cache=signals_cache)
         except Exception as exc:  # noqa: BLE001
             print(f"  [aviso] pre-carga de sinais falhou: {type(exc).__name__}")
-        signals_cache.close()
-    if zoning_cache is not None:
-        zoning_cache.close()
-    store.close()
+    _close_resources(store, signals_cache, zoning_cache)
+    final_status = source_status if source_status != "healthy" else (
+        "degraded" if n_failed else "healthy"
+    )
+    if not dry_run and not use_mock:
+        _write_run_status(
+            cfg,
+            source_name=source_name,
+            source_status=source_status,
+            source_captured_at=source_captured_at,
+            diagnostics=source_diagnostics,
+            stage="completed" if final_status == "healthy" else "failed",
+            total=len(listings),
+        )
+    return RunOutcome(final_status, source_status, source_captured_at, len(listings))
 
 
 def main() -> None:
@@ -249,10 +407,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="mostra no console mas não envia alertas externos",
+        help="somente mostra no console; não grava banco/CSV nem envia alertas",
     )
     args = parser.parse_args()
-    run(use_mock=args.mock, dry_run=args.dry_run)
+    outcome = run(use_mock=args.mock, dry_run=args.dry_run)
+    if outcome.status != "healthy":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

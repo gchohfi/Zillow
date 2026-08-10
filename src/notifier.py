@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import smtplib
 from email.mime.text import MIMEText
+from typing import Callable, Protocol
 from urllib.parse import quote_plus
 
 import requests
@@ -11,6 +12,27 @@ import requests
 from .config import env
 from .memo import memo_slug
 from .models import ViabilityResult
+
+
+class AlertDeliveryStore(Protocol):
+    def has_alert_delivery(self, channel: str, message: str) -> bool: ...
+
+    def record_alert_delivery(self, channel: str, message: str) -> None: ...
+
+
+def _deliver_once(
+    channel: str,
+    message: str,
+    send: Callable[[], bool],
+    delivery_store: AlertDeliveryStore | None,
+) -> bool:
+    if delivery_store is not None and delivery_store.has_alert_delivery(channel, message):
+        print(f"[{channel}] entrega já confirmada; retry ignorado")
+        return True
+    delivered = send()
+    if delivered and delivery_store is not None:
+        delivery_store.record_alert_delivery(channel, message)
+    return delivered
 
 
 def _cadastral_radar_priority(result: ViabilityResult) -> int:
@@ -46,11 +68,15 @@ def _format_result(r: ViabilityResult) -> str:
     return "\n".join(lines)
 
 
-def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
+def notify(
+    results: list[ViabilityResult],
+    dry_run: bool = False,
+    delivery_store: AlertDeliveryStore | None = None,
+) -> bool:
     """Notifica as oportunidades viáveis pelos canais configurados."""
     if not results:
         print("Nenhuma oportunidade viável nova nesta rodada.")
-        return
+        return True
 
     body = "\n\n".join(_format_result(r) for r in results)
     header = f"{len(results)} oportunidade(s) viável(is) de terreno perto de Orlando:\n"
@@ -59,21 +85,35 @@ def notify(results: list[ViabilityResult], dry_run: bool = False) -> None:
     print(full_message)
     if dry_run:
         print("\n[dry-run] envios externos não foram realizados.")
-        return
-    _maybe_send_email(subject, full_message)
-    _maybe_send_telegram(f"{subject}\n\n{full_message}")
-    _maybe_send_zapi_whatsapp_results(results)
+        return True
+    telegram_message = f"{subject}\n\n{full_message}"
+    return all([
+        _deliver_once(
+            "email",
+            f"{subject}\n\n{full_message}",
+            lambda: _maybe_send_email(subject, full_message),
+            delivery_store,
+        ),
+        _deliver_once(
+            "telegram",
+            telegram_message,
+            lambda: _maybe_send_telegram(telegram_message),
+            delivery_store,
+        ),
+        _maybe_send_zapi_whatsapp_results(results, delivery_store=delivery_store),
+    ])
 
 
 def notify_radar(
     results: list[ViabilityResult],
     dry_run: bool = False,
     max_messages: int = 10,
-) -> None:
+    delivery_store: AlertDeliveryStore | None = None,
+) -> bool:
     """Envia candidatos de Radar apenas pelo WhatsApp/status operacional."""
     if not results:
         print("Nenhum candidato de Radar nesta rodada.")
-        return
+        return True
 
     ranked = sorted(
         results,
@@ -89,35 +129,81 @@ def notify_radar(
     print(f"{len(results)} candidato(s) no Radar; {len(selected)} selecionado(s) para WhatsApp.")
     if dry_run:
         print("\n[dry-run] Radar WhatsApp não foi enviado.")
-        return
+        return True
 
+    success = True
     if len(results) > max_messages:
-        _maybe_send_zapi_whatsapp(
+        summary = (
             f"[Orlando Land Radar] {len(results)} candidatos para revisar. "
             f"Enviando os {max_messages} melhores por tese/margem/lucro."
         )
+        success = _deliver_once(
+            "whatsapp",
+            summary,
+            lambda: _maybe_send_zapi_whatsapp(summary),
+            delivery_store,
+        ) and success
     for result in selected:
-        _maybe_send_zapi_whatsapp(_format_whatsapp_radar_result(result))
+        message = _format_whatsapp_radar_result(result)
+        success = _deliver_once(
+            "whatsapp",
+            message,
+            lambda message=message: _maybe_send_zapi_whatsapp(message),
+            delivery_store,
+        ) and success
+    return success
 
 
-def send_message(subject: str, body: str, dry_run: bool = False) -> None:
+def send_message(
+    subject: str,
+    body: str,
+    dry_run: bool = False,
+    delivery_store: AlertDeliveryStore | None = None,
+) -> bool:
     """Mostra no console e dispara para os canais configurados."""
     print(body)
     if dry_run:
         print("\n[dry-run] envios externos não foram realizados.")
-        return
-    _maybe_send_email(subject, body)
-    _maybe_send_telegram(f"{subject}\n\n{body}")
-    _maybe_send_zapi_whatsapp(f"{subject}\n\n{body}")
+        return True
+    message = f"{subject}\n\n{body}"
+    return all([
+        _deliver_once(
+            "email",
+            message,
+            lambda: _maybe_send_email(subject, body),
+            delivery_store,
+        ),
+        _deliver_once(
+            "telegram",
+            message,
+            lambda: _maybe_send_telegram(message),
+            delivery_store,
+        ),
+        _deliver_once(
+            "whatsapp",
+            message,
+            lambda: _maybe_send_zapi_whatsapp(message),
+            delivery_store,
+        ),
+    ])
 
 
-def send_whatsapp_status(message: str, dry_run: bool = False) -> None:
+def send_whatsapp_status(
+    message: str,
+    dry_run: bool = False,
+    delivery_store: AlertDeliveryStore | None = None,
+) -> bool:
     """Send an operational status message only through WhatsApp."""
     print(message)
     if dry_run:
         print("\n[dry-run] resumo WhatsApp não foi enviado.")
-        return
-    _maybe_send_zapi_whatsapp(message)
+        return True
+    return _deliver_once(
+        "whatsapp",
+        message,
+        lambda: _maybe_send_zapi_whatsapp(message),
+        delivery_store,
+    )
 
 
 def _regrid_map_url(lat: float, lng: float) -> str:
@@ -305,27 +391,44 @@ def _format_whatsapp_radar_result(r: ViabilityResult) -> str:
     return "\n".join(lines)
 
 
-def _maybe_send_zapi_whatsapp_results(results: list[ViabilityResult]) -> None:
+def _maybe_send_zapi_whatsapp_results(
+    results: list[ViabilityResult],
+    delivery_store: AlertDeliveryStore | None = None,
+) -> bool:
     max_messages = int(env("WHATSAPP_MAX_OPPORTUNITIES", "10") or 10)
     ranked = sorted(results, key=lambda r: (r.market_score, r.margin, r.profit), reverse=True)
     selected = ranked[:max_messages]
     if not selected:
-        return
+        return True
 
+    success = True
     if len(results) > max_messages:
-        _maybe_send_zapi_whatsapp(
+        summary = (
             f"[Orlando Land] {len(results)} oportunidades viaveis. "
             f"Enviando as {max_messages} melhores por tese/margem/lucro."
         )
+        success = _deliver_once(
+            "whatsapp",
+            summary,
+            lambda: _maybe_send_zapi_whatsapp(summary),
+            delivery_store,
+        ) and success
     for result in selected:
-        _maybe_send_zapi_whatsapp(_format_whatsapp_result(result))
+        message = _format_whatsapp_result(result)
+        success = _deliver_once(
+            "whatsapp",
+            message,
+            lambda message=message: _maybe_send_zapi_whatsapp(message),
+            delivery_store,
+        ) and success
+    return success
 
 
-def _maybe_send_email(subject: str, message: str) -> None:
+def _maybe_send_email(subject: str, message: str) -> bool:
     host = env("SMTP_HOST")
     to_addr = env("ALERT_EMAIL_TO")
     if not host or not to_addr:
-        return
+        return True
     user = env("SMTP_USER")
     password = env("SMTP_PASSWORD")
     port = int(env("SMTP_PORT", "587") or 587)
@@ -341,15 +444,17 @@ def _maybe_send_email(subject: str, message: str) -> None:
                 server.login(user, password)
             server.send_message(msg)
         print(f"[email] enviado para {to_addr}")
+        return True
     except Exception as exc:  # noqa: BLE001
-        print(f"[email] falhou: {exc}")
+        print(f"[email] falhou: {type(exc).__name__}")
+        return False
 
 
-def _maybe_send_telegram(message: str) -> None:
+def _maybe_send_telegram(message: str) -> bool:
     token = env("TELEGRAM_BOT_TOKEN")
     chat_id = env("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        return
+        return True
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
@@ -358,17 +463,19 @@ def _maybe_send_telegram(message: str) -> None:
         )
         resp.raise_for_status()
         print("[telegram] enviado")
+        return True
     except Exception as exc:  # noqa: BLE001
         print(f"[telegram] falhou: {type(exc).__name__}")
+        return False
 
 
-def _maybe_send_zapi_whatsapp(message: str) -> None:
+def _maybe_send_zapi_whatsapp(message: str) -> bool:
     instance_id = env("ZAPI_INSTANCE_ID")
     instance_token = env("ZAPI_INSTANCE_TOKEN")
     client_token = env("ZAPI_CLIENT_TOKEN")
     phone = env("ZAPI_PHONE")
     if not all([instance_id, instance_token, phone]):
-        return
+        return True
 
     url = (
         "https://api.z-api.io/instances/"
@@ -387,5 +494,7 @@ def _maybe_send_zapi_whatsapp(message: str) -> None:
         )
         resp.raise_for_status()
         print(f"[whatsapp] enviado para {phone}")
+        return True
     except Exception as exc:  # noqa: BLE001
         print(f"[whatsapp] falhou: {type(exc).__name__}")
+        return False
