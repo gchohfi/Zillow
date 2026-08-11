@@ -9,8 +9,9 @@ on:
         default: false
         type: boolean
   schedule:
-    # De hora em hora, em UTC.
-    - cron: "0 * * * *"
+    # A cada 6 horas, em UTC. A RentCast ingere listagens em ciclos mais longos;
+    # reduzir a frequência evita chamadas repetidas sem perda material de frescor.
+    - cron: "0 */6 * * *"
 
 concurrency:
   group: orlando-land-scan

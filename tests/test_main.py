@@ -168,6 +168,102 @@ def test_intra_run_duplicate_is_evaluated_once(monkeypatch, tmp_path):
     assert evaluated == ["one"]
 
 
+def test_arv_runs_only_for_new_candidates_that_pass_initial_filter(monkeypatch, tmp_path):
+    cfg = Config.load()
+    cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")
+    cfg.raw["output"]["csv_path"] = str(tmp_path / "opportunities.csv")
+    cfg.raw["output"]["evaluations_csv_path"] = str(tmp_path / "evaluations.csv")
+    cfg.raw["output"]["run_status_path"] = str(tmp_path / "scan-status.json")
+    cfg.raw["region_signals"]["enabled"] = False
+    cfg.raw["zoning_lookup"]["enabled"] = False
+    cfg.raw["red_flags"]["flood"]["enabled"] = False
+    cfg.raw["rental"]["enabled"] = False
+    cfg.raw["notifications"]["whatsapp_run_summary"]["enabled"] = False
+    cfg.raw["availability"] = {
+        "require_status_active": False,
+        "reject_removed": False,
+        "max_last_seen_hours": 0,
+        "max_listed_age_days": 0,
+        "require_mls_number": False,
+    }
+    cfg.raw["tiers"] = []
+    cfg.raw["rules"]["max_land_price"] = 50_000
+    cfg.raw["rules"]["require_residential_zoning"] = False
+    _zero_site_costs(cfg)
+
+    accepted = Listing(
+        id="accepted",
+        price=12_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Accepted lot",
+        zoning="residential",
+        lot_size_sqft=8_000,
+    )
+    historical = Listing(
+        id="historical",
+        price=12_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Historical lot",
+        zoning="residential",
+        lot_size_sqft=8_000,
+    )
+    unavailable = Listing(
+        id="unavailable",
+        price=12_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Unavailable lot",
+        zoning="residential",
+        lot_size_sqft=8_000,
+    )
+    rejected = Listing(
+        id="rejected",
+        price=250_000,
+        lat=28.5384,
+        lng=-81.3789,
+        address="Rejected lot",
+        zoning="residential",
+        lot_size_sqft=8_000,
+    )
+
+    from src.storage import SeenStore
+
+    store = SeenStore(cfg.raw["storage"]["db_path"])
+    store.mark_seen(historical)
+    store.close()
+
+    class Source:
+        def fetch_new_land_listings(self, _cfg):
+            return [historical, accepted, rejected, accepted, unavailable]
+
+    arv_calls = []
+
+    def fake_enrich_arv(listing, _cfg):
+        arv_calls.append(listing.id)
+        listing.arv_estimate = 400_000
+        listing.arv_source = "rentcast_avm"
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, _use_mock: Source())
+    monkeypatch.setattr(
+        "src.main.check_availability",
+        lambda listing, _cfg: (listing.id != "unavailable", []),
+    )
+    monkeypatch.setattr("src.main.enrich_arv", fake_enrich_arv)
+    monkeypatch.setattr("src.main.notify", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("src.main.notify_radar", lambda *_args, **_kwargs: True)
+
+    run(use_mock=False, dry_run=False)
+
+    assert arv_calls == ["accepted"]
+    with open(tmp_path / "evaluations.csv", newline="", encoding="utf-8") as fh:
+        rows = {row["id"]: row for row in csv.DictReader(fh)}
+    assert rows["accepted"]["arv_source"] == "rentcast_avm"
+    assert rows["accepted"]["arv"] == "400000"
+
+
 def test_persistence_failure_does_not_consume_candidate(monkeypatch, tmp_path):
     cfg = Config.load()
     cfg.raw["storage"]["db_path"] = str(tmp_path / "seen.db")

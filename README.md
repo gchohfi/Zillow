@@ -96,11 +96,11 @@ distância e link. Abra direto no Excel/Google Sheets.
 
 ### Agendamento automático (cron)
 
-Já existe um `run.sh` pronto. Para rodar **de hora em hora**, rode `crontab -e`
+Já existe um `run.sh` pronto. Para rodar **a cada 6 horas**, rode `crontab -e`
 e cole (ajuste o caminho):
 
 ```
-0 * * * * /caminho/orlando-land-detector/run.sh >> /caminho/orlando-land-detector/run.log 2>&1
+0 */6 * * * /caminho/orlando-land-detector/run.sh >> /caminho/orlando-land-detector/run.log 2>&1
 ```
 
 A cada execução ele busca o que é novo, calcula viabilidade, grava no CSV e
@@ -130,7 +130,8 @@ O comando apenas imprime JSON; não reprocessa, apaga, edita ou publica dados.
 
 O projeto também tem um workflow em `.github/workflows/scan.yml` para rodar sem
 deixar seu computador ligado. Ele pode ser iniciado manualmente pelo botão
-**Run workflow** no GitHub e também roda agendado de hora em hora.
+**Run workflow** no GitHub e também roda agendado às 00:00, 06:00, 12:00 e
+18:00 UTC.
 
 Antes de ativar, cadastre os Secrets do repositório em:
 `Settings → Secrets and variables → Actions → New repository secret`.
@@ -160,12 +161,16 @@ CSVs e o banco também são enviados como artifacts por 14 dias para auditoria.
 Para mudar a frequência, edite o cron no workflow:
 
 ```yaml
-# de hora em hora
-- cron: "0 * * * *"
+# a cada 6 horas (configuração do piloto)
+- cron: "0 */6 * * *"
 
-# aproximadamente a cada 5 horas
-- cron: "0 0,5,10,15,20 * * *"
+# de hora em hora (agenda anterior; restaurar aumenta o consumo)
+- cron: "0 * * * *"
 ```
+
+O handoff, a estimativa de chamadas, os critérios da validação única e o
+rollback do piloto Developer estão em
+[`docs/RENTCAST_DEVELOPER_PILOT.md`](docs/RENTCAST_DEVELOPER_PILOT.md).
 
 ### Resumo diário (sinal de vida)
 
