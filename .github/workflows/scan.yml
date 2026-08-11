@@ -22,8 +22,55 @@ permissions:
   id-token: write
 
 jobs:
+  probe:
+    name: Controlled source probe
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      PYTHONUNBUFFERED: "1"
+      # ZAPI é um alias temporário; ZILLAPI_KEY continua sendo o nome preferido.
+      ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY || secrets.ZAPI }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Check ZillAPI secret
+        shell: bash
+        run: |
+          if [ -z "${ZILLAPI_KEY:-}" ]; then
+            echo "::error::Configure o secret ZILLAPI_KEY (preferido) ou ZAPI em Actions."
+            exit 1
+          fi
+
+      - name: Probe ZillAPI source
+        run: python -m src.main --source-probe
+
+      - name: Upload controlled probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zillapi-source-probe-${{ github.run_id }}
+          path: source_probe.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   scan:
     name: Scan land listings
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -32,7 +79,6 @@ jobs:
 
     env:
       PYTHONUNBUFFERED: "1"
-      CONTROLLED_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
       # ZAPI é um alias temporário; ZILLAPI_KEY continua sendo o nome preferido.
       ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY || secrets.ZAPI }}
@@ -122,15 +168,10 @@ jobs:
 
       - name: Run scanner
         shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m src.main --source-probe
-          else
-            python -m src.main
-          fi
+        run: python -m src.main
 
       - name: Zoning GIS smoke test
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
+        if: always()
         continue-on-error: true
         shell: bash
         run: |
@@ -187,28 +228,28 @@ jobs:
           PY
 
       - name: Build dashboard site
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
+        if: always()
         run: python -m src.site
 
       - name: Configure GitHub Pages
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
+        if: always()
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
       - name: Upload dashboard to Pages
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
+        if: always()
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Deploy dashboard to GitHub Pages
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
+        if: always()
         id: deployment
         uses: actions/deploy-pages@v4
 
       - name: Save scanner memory
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' && hashFiles('seen_listings.db') != '' }}
+        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -231,12 +272,11 @@ jobs:
             evaluations.csv
             seen_listings.db
             scan_status.json
-            source_probe.json
           if-no-files-found: ignore
           retention-days: 14
 
       - name: Alert on workflow failure (WhatsApp)
-        if: ${{ failure() && env.CONTROLLED_RUN != 'true' }}
+        if: ${{ failure() }}
         shell: bash
         run: |
           # Silêncio deve significar "sem oportunidade", nunca "sistema quebrado".
@@ -251,7 +291,7 @@ jobs:
           fi
 
       - name: Persist state to data branch
-        if: ${{ always() && env.CONTROLLED_RUN != 'true' && hashFiles('seen_listings.db') != '' }}
+        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
         shell: bash
         run: |
           # Último passo do job: troca de branch é segura porque nada mais
