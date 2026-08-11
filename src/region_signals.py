@@ -23,6 +23,7 @@ from typing import Any
 import requests
 
 from .config import Config
+from .zillow_research import ZHVI_ZIP_URL, enrich_with_zhvi, get_zhvi_for_zip
 
 _GEOCODER_USER_AGENT = "orlando-land-detector/1.0 (https://github.com/gchohfi/Zillow)"
 
@@ -206,6 +207,35 @@ def build_summary(signals: dict[str, Any], radius_km: float) -> list[str]:
     return parts
 
 
+def _enrich_zillow_research(
+    signals: dict[str, Any], cfg: Config, cache: SignalsCache
+) -> dict[str, Any]:
+    """Acrescenta ZHVI oficial; qualquer falha preserva os sinais existentes."""
+    section = cfg.raw.get("region_signals", {})
+    research = section.get("zillow_research", {})
+    if not isinstance(research, dict) or not research.get("enabled", False):
+        return signals
+    zip_code = str(signals.get("zip") or "")
+    if not zip_code:
+        return signals
+    target_zips = set(thesis_zips(cfg)) | {zip_code}
+    try:
+        zhvi = get_zhvi_for_zip(
+            zip_code,
+            target_zips=target_zips,
+            db_path=section.get("cache_db", "region_signals.db"),
+            max_age_days=float(research.get("cache_days", 30) or 30),
+            url=str(research.get("zhvi_zip_url") or ZHVI_ZIP_URL),
+            timeout_seconds=float(research.get("timeout_seconds", 90) or 90),
+        )
+    except (requests.RequestException, sqlite3.Error, OSError, ValueError, TypeError) as exc:
+        print(f"  [aviso] Zillow Research falhou para ZIP {zip_code}: {type(exc).__name__}")
+        return signals
+    enrich_with_zhvi(signals, zhvi)
+    cache.put(zip_code, signals)
+    return signals
+
+
 def get_region_signals(
     zip_code: str | None,
     lat: float,
@@ -228,11 +258,11 @@ def get_region_signals(
         cached = cache.get(zip_code, max_age_days)
         if cached is not None:
             if cached.get("score") is not None:
-                return cached
+                return _enrich_zillow_research(cached, cfg, cache)
             # Busca anterior falhou (score vazio): tenta de novo após poucas
             # horas em vez de esperar o cache de 30 dias expirar.
             if cache.get(zip_code, failure_retry_days) is not None:
-                return cached
+                return _enrich_zillow_research(cached, cfg, cache)
 
         radius_km = float(section.get("radius_km", 3) or 3)
         signals: dict[str, Any] = {
@@ -271,6 +301,8 @@ def get_region_signals(
 
         signals["score"] = compute_score(signals)
         signals["summary"] = build_summary(signals, radius_km)
+
+        signals = _enrich_zillow_research(signals, cfg, cache)
 
         # Guarda mesmo parcial: evita repetir chamadas com falha a cada rodada.
         cache.put(zip_code, signals)

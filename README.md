@@ -25,7 +25,8 @@ Arquivos principais:
 | `SPEC.md` | **Especificação canônica do produto e do app**: páginas, componentes, comportamentos, jornadas, contratos e critérios de aceite |
 | `config.yaml` | **A sua fórmula** e todos os parâmetros (margem alvo, custos, premissas de renda, matriz de estresse, tese de mercado…) |
 | `src/main.py` | Orquestra tudo: busca → filtra → enriquece → avalia → alerta |
-| `src/datasource.py` | Fonte de listagens (RentCast; RapidAPI como fallback; modo `mock` sem chave) |
+| `src/datasource.py` | Fontes de listagens (Zillapi no piloto; RentCast/RapidAPI como alternativas; `mock` sem chave) |
+| `src/zillow_research.py` | ZHVI oficial mensal por ZIP, com cache SQLite e período auditável |
 | `src/geo.py` | Cálculo de distância (Haversine) a partir de Orlando |
 | `src/storage.py` | SQLite que lembra listagens já vistas → detecta o que é novo |
 | `src/availability.py` | Checagem de disponibilidade (status ativo, idade da listagem, MLS) |
@@ -129,8 +130,8 @@ O comando apenas imprime JSON; não reprocessa, apaga, edita ou publica dados.
 ### Agendamento automático na nuvem (GitHub Actions)
 
 O projeto também tem um workflow em `.github/workflows/scan.yml` para rodar sem
-deixar seu computador ligado. Ele pode ser iniciado manualmente pelo botão
-**Run workflow** no GitHub e também roda agendado de hora em hora.
+deixar seu computador ligado. No piloto Zillapi, ele roda uma vez por dia e o
+adaptador impõe teto de 29 créditos por rodada, com piso de segurança de 100.
 
 Antes de ativar, cadastre os Secrets do repositório em:
 `Settings → Secrets and variables → Actions → New repository secret`.
@@ -139,7 +140,8 @@ Secrets principais:
 
 | Secret | Obrigatório? | Uso |
 |---|---:|---|
-| `RENTCAST_API_KEY` | Sim | Busca listagens e ARV/comps na RentCast |
+| `ZILLAPI_KEY` | Sim no piloto | Busca listagens; cadastrar somente em Actions Secrets |
+| `RENTCAST_API_KEY` | Se usar RentCast/ARV | Busca listagens e ARV/comps na RentCast |
 | `REGRID_API_KEY` | Opcional | Zoneamento/uso do solo/dono da parcela (Regrid; **requer plano pago** — o trial não cobre Orlando) |
 | `ZAPI_INSTANCE_ID` | Para WhatsApp | Instância da Z-API |
 | `ZAPI_INSTANCE_TOKEN` | Para WhatsApp | Token da instância Z-API |
@@ -160,12 +162,12 @@ CSVs e o banco também são enviados como artifacts por 14 dias para auditoria.
 Para mudar a frequência, edite o cron no workflow:
 
 ```yaml
-# de hora em hora
-- cron: "0 * * * *"
-
-# aproximadamente a cada 5 horas
-- cron: "0 0,5,10,15,20 * * *"
+# piloto: uma vez por dia às 12:00 UTC
+- cron: "0 12 * * *"
 ```
+
+O orçamento e o hold point do piloto estão em
+[`docs/ZILLAPI_PILOT.md`](docs/ZILLAPI_PILOT.md).
 
 ### Resumo diário (sinal de vida)
 

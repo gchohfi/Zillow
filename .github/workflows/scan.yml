@@ -9,8 +9,8 @@ on:
         default: false
         type: boolean
   schedule:
-    # De hora em hora, em UTC.
-    - cron: "0 * * * *"
+    # Piloto: uma vez por dia. O adaptador limita cada rodada a 29 créditos.
+    - cron: "0 12 * * *"
 
 concurrency:
   group: orlando-land-scan
@@ -33,6 +33,7 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
+      ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY }}
       REGRID_API_KEY: ${{ secrets.REGRID_API_KEY }}
       RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
       RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
@@ -97,7 +98,11 @@ jobs:
         shell: bash
         run: |
           missing=0
-          if [ -z "${RENTCAST_API_KEY:-}" ]; then
+          provider="$(python -c 'import yaml; print(yaml.safe_load(open("config.yaml"))["datasource"]["provider"])')"
+          if [ "$provider" = "zillapi" ] && [ -z "${ZILLAPI_KEY:-}" ]; then
+            echo "::error::Configure o secret ZILLAPI_KEY em Settings > Secrets and variables > Actions."
+            missing=1
+          elif [ "$provider" = "rentcast" ] && [ -z "${RENTCAST_API_KEY:-}" ]; then
             echo "::error::Configure o secret RENTCAST_API_KEY em Settings > Secrets and variables > Actions."
             missing=1
           fi

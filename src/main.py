@@ -55,6 +55,7 @@ def _write_run_status(
     diagnostics: list[str],
     stage: str,
     total: int,
+    source_metrics: dict | None = None,
 ) -> None:
     path = cfg.raw.get("output", {}).get("run_status_path", "scan_status.json")
     if not path:
@@ -68,6 +69,7 @@ def _write_run_status(
         "diagnostics": diagnostics,
         "stage": stage,
         "listings_returned": total,
+        "source_metrics": source_metrics or {},
         "status_updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     temporary = target.with_suffix(target.suffix + ".tmp")
@@ -100,6 +102,7 @@ def _format_run_summary(
     viable_new: int,
     radar: int = 0,
     dashboard_url: str | None = None,
+    source_metrics: dict | None = None,
 ) -> str:
     status = "Sem oportunidade viável nova nesta rodada."
     if viable_new:
@@ -120,6 +123,13 @@ def _format_run_summary(
         f"Fora do raio: {out_of_radius}",
         f"Falhas: {failed}",
     ]
+    source_metrics = source_metrics or {}
+    if "credits_consumed" in source_metrics:
+        lines.append(f"Créditos consumidos: {source_metrics['credits_consumed']}")
+    if "credit_balance_after" in source_metrics:
+        lines.append(f"Saldo de créditos: {source_metrics['credit_balance_after']}")
+    if source_metrics.get("max_items_allowed") == 0:
+        lines.append("Saldo baixo — scan pausado pelo orçamento configurado.")
     if dashboard_url:
         lines.append(f"Dashboard: {dashboard_url}")
     return "\n".join(lines)
@@ -151,6 +161,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
     source_status, source_captured_at, source_diagnostics = _source_outcome(source)
     source_name = "mock" if use_mock else source.__class__.__name__
+    source_metrics = dict(getattr(source, "metrics", {}) or {})
 
     def record_runtime_failure(code: str) -> None:
         if not dry_run and not use_mock:
@@ -162,6 +173,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
                 diagnostics=[*source_diagnostics, code][:5],
                 stage="failed",
                 total=len(listings),
+                source_metrics=source_metrics,
             )
 
     if not dry_run and not use_mock:
@@ -173,6 +185,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             diagnostics=source_diagnostics,
             stage="failed" if source_status == "failed" else "fetched",
             total=len(listings),
+            source_metrics=source_metrics,
         )
     if source_status == "failed":
         send_message(
@@ -363,6 +376,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             failed=n_failed,
             viable_new=len(viable_new),
             dashboard_url=env("DASHBOARD_URL"),
+            source_metrics=source_metrics,
         )
         if send_whatsapp_status(
             summary,
@@ -393,6 +407,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             diagnostics=source_diagnostics,
             stage="completed" if final_status == "healthy" else "failed",
             total=len(listings),
+            source_metrics=source_metrics,
         )
     return RunOutcome(final_status, source_status, source_captured_at, len(listings))
 
