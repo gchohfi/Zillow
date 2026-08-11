@@ -144,6 +144,26 @@ def test_get_region_signals_disabled_or_no_zip(tmp_path):
     assert get_region_signals(None, 28.5, -81.4, _cfg(tmp_path)) is None
 
 
+def test_cached_signals_are_enriched_with_zhvi_from_nested_config(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path, zillow_research={"enabled": True, "cache_days": 30})
+    cache = SignalsCache(str(tmp_path / "signals.db"))
+    cache.put("32801", {"zip": "32801", "score": 7.0, "summary": []})
+    cache.close()
+    monkeypatch.setattr(
+        "src.region_signals.get_zhvi_for_zip",
+        lambda *args, **kwargs: {
+            "zhvi_latest": 385_000,
+            "zhvi_period": "2026-06",
+            "zhvi_12m_pct": 0.083,
+            "zhvi_3m_pct": 0.02,
+        },
+    )
+    signals = get_region_signals("32801", 28.5, -81.4, cfg)
+    assert signals["zillow_zhvi"] == 385_000
+    assert signals["zillow_zhvi_period"] == "2026-06"
+    assert any("valorizacao ZHVI" in line for line in signals["summary"])
+
+
 def test_prefetch_config_zips_geocodes_and_caches(tmp_path, monkeypatch):
     from src.region_signals import prefetch_config_zips
 

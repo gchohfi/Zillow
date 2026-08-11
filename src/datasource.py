@@ -40,6 +40,7 @@ class DataSource(abc.ABC):
 
     def __init__(self) -> None:
         self.outcome = SourceOutcome()
+        self.metrics: dict[str, Any] = {}
 
     def _finish(self, *, succeeded: int, failed: int, diagnostics: list[str]) -> None:
         if failed and not succeeded:
@@ -430,4 +431,9 @@ def get_source(cfg: Config, use_mock: bool = False) -> DataSource:
         return RealtorRapidAPISource(ds_cfg)
     if provider == "rentcast":
         return RentCastSource(ds_cfg)
+    if provider == "zillapi":
+        # Import tardio evita dependência circular: o adaptador herda DataSource.
+        from .datasource_zillapi import ZillapiSource
+
+        return ZillapiSource(ds_cfg)
     raise ValueError(f"datasource.provider desconhecido: {provider!r}")

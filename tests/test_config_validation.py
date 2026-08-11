@@ -37,3 +37,20 @@ def test_missing_section_and_bad_values_are_reported():
     assert any("selling_cost_pct" in error and "≤ 1" in error for error in errors)
     assert any("target_margin" in error for error in errors)
     assert any("tiers[0]" in error for error in errors)
+
+
+def test_zillapi_budget_is_hard_limited():
+    raw = _valid_raw()
+    raw["datasource"] = {
+        "provider": "zillapi",
+        "zillapi": {
+            "max_items_per_run": 30,
+            "bboxes_per_run": 2,
+            "reserve_credits": 99,
+            "bboxes": [{"west": -82, "south": 28, "east": -81, "north": 29}],
+        },
+    }
+    errors = validate_config(Config(raw=raw))
+    assert any("max_items_per_run" in error for error in errors)
+    assert any("bboxes_per_run" in error for error in errors)
+    assert any("reserve_credits" in error for error in errors)

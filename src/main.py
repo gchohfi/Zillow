@@ -55,6 +55,7 @@ def _write_run_status(
     diagnostics: list[str],
     stage: str,
     total: int,
+    source_metrics: dict | None = None,
 ) -> None:
     path = cfg.raw.get("output", {}).get("run_status_path", "scan_status.json")
     if not path:
@@ -68,6 +69,7 @@ def _write_run_status(
         "diagnostics": diagnostics,
         "stage": stage,
         "listings_returned": total,
+        "source_metrics": source_metrics or {},
         "status_updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     temporary = target.with_suffix(target.suffix + ".tmp")
@@ -100,6 +102,7 @@ def _format_run_summary(
     viable_new: int,
     radar: int = 0,
     dashboard_url: str | None = None,
+    source_metrics: dict | None = None,
 ) -> str:
     status = "Sem oportunidade viável nova nesta rodada."
     if viable_new:
@@ -120,9 +123,81 @@ def _format_run_summary(
         f"Fora do raio: {out_of_radius}",
         f"Falhas: {failed}",
     ]
+    source_metrics = source_metrics or {}
+    if "credits_consumed" in source_metrics:
+        lines.append(f"Créditos consumidos: {source_metrics['credits_consumed']}")
+    if "credit_balance_after" in source_metrics:
+        lines.append(f"Saldo de créditos: {source_metrics['credit_balance_after']}")
+    if source_metrics.get("max_items_allowed") == 0:
+        lines.append("Saldo baixo — scan pausado pelo orçamento configurado.")
     if dashboard_url:
         lines.append(f"Dashboard: {dashboard_url}")
     return "\n".join(lines)
+
+
+def source_probe(report_path: str = "source_probe.json") -> RunOutcome:
+    """Valida somente a fonte configurada, sem executar enriquecimentos ou alertas."""
+    cfg = Config.load()
+    config_errors = validate_config(cfg)
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if config_errors:
+        print("[source-probe] config.yaml inválido; corrija antes de rodar:")
+        for error in config_errors:
+            print(f"  - {error}")
+        return RunOutcome("failed", "failed", captured_at)
+
+    try:
+        source = get_source(cfg, use_mock=False)
+    except RuntimeError as exc:
+        print(f"[source-probe] {exc}")
+        return RunOutcome("failed", "failed", captured_at)
+
+    listings = source.fetch_new_land_listings(cfg)
+    source_status, source_captured_at, diagnostics = _source_outcome(source)
+    source_metrics = dict(getattr(source, "metrics", {}) or {})
+    credits_consumed = int(source_metrics.get("credits_consumed", 0) or 0)
+    if credits_consumed > 29:
+        source_status = "failed"
+        diagnostics = [
+            *diagnostics,
+            f"limite violado: {credits_consumed} créditos consumidos (máximo 29)",
+        ][:5]
+
+    payload = {
+        "mode": "source-probe",
+        "source": source.__class__.__name__,
+        "source_result": source_status,
+        "source_captured_at": source_captured_at,
+        "diagnostics": diagnostics,
+        "listings_returned": len(listings),
+        "source_metrics": source_metrics,
+        "listings": [
+            {
+                "id": listing.id,
+                "address": listing.address,
+                "price": listing.price,
+                "lot_size_sqft": listing.lot_size_sqft,
+                "listing_date": listing.listing_date,
+                "url": listing.url,
+            }
+            for listing in listings
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    target = Path(report_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+
+    print(
+        "[source-probe] "
+        f"status={source_status} | listagens={len(listings)} | "
+        f"créditos={credits_consumed} | "
+        f"saldo={source_metrics.get('credit_balance_after', 'indisponível')}"
+    )
+    print(f"[source-probe] relatório: {target}")
+    return RunOutcome(source_status, source_status, source_captured_at, len(listings))
 
 
 def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
@@ -151,6 +226,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
     print(f"  {len(listings)} listagem(ns) retornada(s) pela fonte.")
     source_status, source_captured_at, source_diagnostics = _source_outcome(source)
     source_name = "mock" if use_mock else source.__class__.__name__
+    source_metrics = dict(getattr(source, "metrics", {}) or {})
 
     def record_runtime_failure(code: str) -> None:
         if not dry_run and not use_mock:
@@ -162,6 +238,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
                 diagnostics=[*source_diagnostics, code][:5],
                 stage="failed",
                 total=len(listings),
+                source_metrics=source_metrics,
             )
 
     if not dry_run and not use_mock:
@@ -173,6 +250,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             diagnostics=source_diagnostics,
             stage="failed" if source_status == "failed" else "fetched",
             total=len(listings),
+            source_metrics=source_metrics,
         )
     if source_status == "failed":
         send_message(
@@ -363,6 +441,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             failed=n_failed,
             viable_new=len(viable_new),
             dashboard_url=env("DASHBOARD_URL"),
+            source_metrics=source_metrics,
         )
         if send_whatsapp_status(
             summary,
@@ -393,6 +472,7 @@ def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
             diagnostics=source_diagnostics,
             stage="completed" if final_status == "healthy" else "failed",
             total=len(listings),
+            source_metrics=source_metrics,
         )
     return RunOutcome(final_status, source_status, source_captured_at, len(listings))
 
@@ -409,8 +489,15 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="somente mostra no console; não grava banco/CSV nem envia alertas",
     )
+    parser.add_argument(
+        "--source-probe", action="store_true",
+        help="consulta apenas a fonte e gera source_probe.json; não enriquece nem alerta",
+    )
     args = parser.parse_args()
-    outcome = run(use_mock=args.mock, dry_run=args.dry_run)
+    outcome = source_probe() if args.source_probe else run(
+        use_mock=args.mock,
+        dry_run=args.dry_run,
+    )
     if outcome.status != "healthy":
         raise SystemExit(1)
 

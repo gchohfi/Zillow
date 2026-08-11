@@ -141,6 +141,28 @@ def validate_config(cfg: "Config") -> list[str]:
         if not search_spec.get("markets"):
             errors.append("'search_spec_infill_18m.markets' deve ter ao menos um mercado")
 
+    datasource = raw.get("datasource")
+    if isinstance(datasource, dict) and datasource.get("provider") == "zillapi":
+        zillapi = datasource.get("zillapi")
+        if not isinstance(zillapi, dict):
+            errors.append("seção 'datasource.zillapi' ausente ou inválida")
+        else:
+            for key, minimum, maximum in (
+                ("max_items_per_run", 1, 29),
+                ("bboxes_per_run", 1, 1),
+                ("reserve_credits", 100, None),
+            ):
+                try:
+                    value = float(zillapi.get(key))
+                except (TypeError, ValueError):
+                    errors.append(f"'datasource.zillapi.{key}' deve ser numérico")
+                    continue
+                if value < minimum or (maximum is not None and value > maximum):
+                    limit = f"entre {minimum} e {maximum}" if maximum else f"≥ {minimum}"
+                    errors.append(f"'datasource.zillapi.{key}' deve ser {limit} (veio {value})")
+            if not zillapi.get("bboxes"):
+                errors.append("'datasource.zillapi.bboxes' deve ter ao menos uma área")
+
     costs = raw.get("costs")
     if isinstance(costs, dict):
         for field in _PCT_FIELDS:

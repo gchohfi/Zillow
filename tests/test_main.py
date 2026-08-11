@@ -1,11 +1,12 @@
 """Tests for the batch orchestration behavior."""
 
 import csv
+import json
 
 import pytest
 
 from src.config import Config
-from src.main import _format_run_summary, run
+from src.main import _format_run_summary, run, source_probe
 from src.models import Listing
 
 
@@ -275,6 +276,49 @@ def test_run_summary_reports_empty_round():
     assert "Listagens encontradas: 37" in summary
     assert "Radar/revisão: 0" in summary
     assert "Reprovadas: 37" in summary
+
+
+def test_source_probe_only_fetches_source_and_writes_safe_report(monkeypatch, tmp_path):
+    cfg = Config.load()
+    report_path = tmp_path / "source_probe.json"
+
+    class Source:
+        metrics = {
+            "credits_consumed": 2,
+            "credit_balance_before": 1000,
+            "credit_balance_after": 998,
+        }
+
+        def fetch_new_land_listings(self, _cfg):
+            return [
+                Listing(
+                    id="probe-1",
+                    price=75_000,
+                    lat=28.5,
+                    lng=-81.4,
+                    address="Pilot lot, Orlando, FL",
+                    lot_size_sqft=10_000,
+                    url="https://www.zillow.com/example",
+                )
+            ]
+
+    monkeypatch.setattr("src.main.Config.load", lambda: cfg)
+    monkeypatch.setattr("src.main.get_source", lambda _cfg, use_mock=False: Source())
+    monkeypatch.setattr(
+        "src.main.check_availability",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("downstream enrichment called")
+        ),
+    )
+
+    outcome = source_probe(str(report_path))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert outcome.status == "healthy"
+    assert report["mode"] == "source-probe"
+    assert report["source_metrics"]["credits_consumed"] == 2
+    assert report["listings"][0]["id"] == "probe-1"
+    assert "raw" not in report["listings"][0]
 
 
 def test_mock_mode_uses_in_memory_seen_store(monkeypatch, tmp_path):

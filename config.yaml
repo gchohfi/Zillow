@@ -336,6 +336,12 @@ region_signals:
   overpass_urls:               # espelhos tentados em ordem
     - https://overpass-api.de/api/interpreter
     - https://overpass.kumi.systems/api/interpreter
+  zillow_research:
+    enabled: true
+    cache_days: 30
+    timeout_seconds: 90
+    # URL estável oficial: o Zillow substitui o conteúdo pelo mês mais recente.
+    zhvi_zip_url: https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
 
 # ---- Tese de mercado por ZIP/região ----
 # Pontuação baseada no relatório Arwell Orlando Market Research.
@@ -563,7 +569,27 @@ notifications:
 #  Use --mock para testar sem chave nenhuma.
 # ============================================================================
 datasource:
-  provider: rentcast      # "rentcast", "realtor_rapidapi" ou "mock"
+  provider: zillapi       # "zillapi", "rentcast", "realtor_rapidapi" ou "mock"
+
+  # Zillapi: piloto diário com teto de 29 créditos por rodada.
+  # 29 × 31 dias = 899 créditos; o piso de 100 impede consumir o saldo final.
+  # Uma bbox é consultada por dia e a seleção gira automaticamente entre as áreas.
+  zillapi:
+    base_url: https://api.zillapi.com/v1
+    status: for_sale
+    max_items_per_run: 29
+    bboxes_per_run: 1
+    reserve_credits: 100
+    min_price: 0
+    max_price: 5000000
+    timeout_seconds: 90
+    bboxes:
+      - { west: -81.55, south: 28.38, east: -81.20, north: 28.78 }
+      - { west: -81.55, south: 28.00, east: -81.15, north: 28.38 }
+      - { west: -81.75, south: 28.30, east: -81.38, north: 28.70 }
+      - { west: -81.30, south: 28.38, east: -81.00, north: 28.68 }
+      - { west: -81.80, south: 28.65, east: -81.45, north: 28.90 }
+      - { west: -81.70, south: 27.90, east: -81.30, north: 28.10 }
 
   rentcast:
     # ----------------------------------------------------------------------
