@@ -140,7 +140,7 @@ Secrets principais:
 
 | Secret | Obrigatório? | Uso |
 |---|---:|---|
-| `ZILLAPI_KEY` | Sim no piloto | Busca listagens; cadastrar somente em Actions Secrets |
+| `ZILLAPI_KEY` | Sim no piloto | Busca listagens; `ZAPI` é aceito temporariamente como alias no Actions |
 | `RENTCAST_API_KEY` | Se usar RentCast/ARV | Busca listagens e ARV/comps na RentCast |
 | `REGRID_API_KEY` | Opcional | Zoneamento/uso do solo/dono da parcela (Regrid; **requer plano pago** — o trial não cobre Orlando) |
 | `ZAPI_INSTANCE_ID` | Para WhatsApp | Instância da Z-API |

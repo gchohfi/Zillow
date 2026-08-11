@@ -26,17 +26,23 @@ destrutiva a versão antiga que usava somente `zip`.
 
 ## Hold point
 
-Este código permanece em Draft PR. Antes de qualquer merge ou scan real:
+O primeiro scan real deve usar exclusivamente o modo `source_probe` do workflow.
+Nesse modo, o Actions consulta saldo + uma busca ZillAPI e anexa
+`source_probe.json`, sem chamar RentCast, FEMA, zoning, notificações, branch
+`data` ou GitHub Pages.
+
+Antes do merge:
 
 1. revogar a chave que apareceu fora do cofre e criar outra;
 2. cadastrar a nova somente em `GitHub Actions Secrets` como `ZILLAPI_KEY`;
-3. executar uma única rodada manual controlada;
+   o workflow também aceita `ZAPI` como alias temporário;
+3. executar uma única rodada manual com `source_probe: true`;
 4. validar humanamente endereço, preço, área, vacância, zoneamento, FEMA, comps,
    custos e margem;
 5. confirmar que o consumo real ficou em até 29 créditos.
 
-Não fazer merge, ativação diária definitiva ou reprocessamento histórico sem
-aprovação posterior.
+Somente depois do probe saudável e da aprovação do piloto: merge e ativação
+diária. Não há reprocessamento histórico neste escopo.
 
 ## Referências oficiais
 

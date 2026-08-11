@@ -135,6 +135,71 @@ def _format_run_summary(
     return "\n".join(lines)
 
 
+def source_probe(report_path: str = "source_probe.json") -> RunOutcome:
+    """Valida somente a fonte configurada, sem executar enriquecimentos ou alertas."""
+    cfg = Config.load()
+    config_errors = validate_config(cfg)
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if config_errors:
+        print("[source-probe] config.yaml inválido; corrija antes de rodar:")
+        for error in config_errors:
+            print(f"  - {error}")
+        return RunOutcome("failed", "failed", captured_at)
+
+    try:
+        source = get_source(cfg, use_mock=False)
+    except RuntimeError as exc:
+        print(f"[source-probe] {exc}")
+        return RunOutcome("failed", "failed", captured_at)
+
+    listings = source.fetch_new_land_listings(cfg)
+    source_status, source_captured_at, diagnostics = _source_outcome(source)
+    source_metrics = dict(getattr(source, "metrics", {}) or {})
+    credits_consumed = int(source_metrics.get("credits_consumed", 0) or 0)
+    if credits_consumed > 29:
+        source_status = "failed"
+        diagnostics = [
+            *diagnostics,
+            f"limite violado: {credits_consumed} créditos consumidos (máximo 29)",
+        ][:5]
+
+    payload = {
+        "mode": "source-probe",
+        "source": source.__class__.__name__,
+        "source_result": source_status,
+        "source_captured_at": source_captured_at,
+        "diagnostics": diagnostics,
+        "listings_returned": len(listings),
+        "source_metrics": source_metrics,
+        "listings": [
+            {
+                "id": listing.id,
+                "address": listing.address,
+                "price": listing.price,
+                "lot_size_sqft": listing.lot_size_sqft,
+                "listing_date": listing.listing_date,
+                "url": listing.url,
+            }
+            for listing in listings
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    target = Path(report_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+
+    print(
+        "[source-probe] "
+        f"status={source_status} | listagens={len(listings)} | "
+        f"créditos={credits_consumed} | "
+        f"saldo={source_metrics.get('credit_balance_after', 'indisponível')}"
+    )
+    print(f"[source-probe] relatório: {target}")
+    return RunOutcome(source_status, source_status, source_captured_at, len(listings))
+
+
 def run(use_mock: bool = False, dry_run: bool = False) -> RunOutcome:
     cfg = Config.load()
     config_errors = validate_config(cfg)
@@ -424,8 +489,15 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="somente mostra no console; não grava banco/CSV nem envia alertas",
     )
+    parser.add_argument(
+        "--source-probe", action="store_true",
+        help="consulta apenas a fonte e gera source_probe.json; não enriquece nem alerta",
+    )
     args = parser.parse_args()
-    outcome = run(use_mock=args.mock, dry_run=args.dry_run)
+    outcome = source_probe() if args.source_probe else run(
+        use_mock=args.mock,
+        dry_run=args.dry_run,
+    )
     if outcome.status != "healthy":
         raise SystemExit(1)
 

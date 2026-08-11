@@ -3,6 +3,11 @@ name: Orlando Land Scan
 on:
   workflow_dispatch:
     inputs:
+      source_probe:
+        description: "Piloto isolado: consulta somente a ZillAPI e gera relatório"
+        required: false
+        default: false
+        type: boolean
       dry_run:
         description: "Rodar sem enviar WhatsApp/e-mail/Telegram"
         required: false
@@ -32,8 +37,10 @@ jobs:
 
     env:
       PYTHONUNBUFFERED: "1"
+      CONTROLLED_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_probe || inputs.dry_run) }}
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
-      ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY }}
+      # ZAPI é um alias temporário; ZILLAPI_KEY continua sendo o nome preferido.
+      ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY || secrets.ZAPI }}
       REGRID_API_KEY: ${{ secrets.REGRID_API_KEY }}
       RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
       RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
@@ -100,7 +107,7 @@ jobs:
           missing=0
           provider="$(python -c 'import yaml; print(yaml.safe_load(open("config.yaml"))["datasource"]["provider"])')"
           if [ "$provider" = "zillapi" ] && [ -z "${ZILLAPI_KEY:-}" ]; then
-            echo "::error::Configure o secret ZILLAPI_KEY em Settings > Secrets and variables > Actions."
+            echo "::error::Configure o secret ZILLAPI_KEY (preferido) ou ZAPI em Settings > Secrets and variables > Actions."
             missing=1
           elif [ "$provider" = "rentcast" ] && [ -z "${RENTCAST_API_KEY:-}" ]; then
             echo "::error::Configure o secret RENTCAST_API_KEY em Settings > Secrets and variables > Actions."
@@ -121,14 +128,16 @@ jobs:
       - name: Run scanner
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.source_probe }}" = "true" ]; then
+            python -m src.main --source-probe
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m src.main --dry-run
           else
             python -m src.main
           fi
 
       - name: Zoning GIS smoke test
-        if: always()
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -185,28 +194,28 @@ jobs:
           PY
 
       - name: Build dashboard site
-        if: always()
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
         run: python -m src.site
 
       - name: Configure GitHub Pages
-        if: always()
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
       - name: Upload dashboard to Pages
-        if: always()
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Deploy dashboard to GitHub Pages
-        if: always()
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' }}
         id: deployment
         uses: actions/deploy-pages@v4
 
       - name: Save scanner memory
-        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' && hashFiles('seen_listings.db') != '' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -229,11 +238,12 @@ jobs:
             evaluations.csv
             seen_listings.db
             scan_status.json
+            source_probe.json
           if-no-files-found: ignore
           retention-days: 14
 
       - name: Alert on workflow failure (WhatsApp)
-        if: ${{ failure() }}
+        if: ${{ failure() && env.CONTROLLED_RUN != 'true' }}
         shell: bash
         run: |
           # Silêncio deve significar "sem oportunidade", nunca "sistema quebrado".
@@ -248,7 +258,7 @@ jobs:
           fi
 
       - name: Persist state to data branch
-        if: ${{ always() && hashFiles('seen_listings.db') != '' }}
+        if: ${{ always() && env.CONTROLLED_RUN != 'true' && hashFiles('seen_listings.db') != '' }}
         shell: bash
         run: |
           # Último passo do job: troca de branch é segura porque nada mais
