@@ -3,13 +3,8 @@ name: Orlando Land Scan
 on:
   workflow_dispatch:
     inputs:
-      source_probe:
-        description: "Piloto isolado: consulta somente a ZillAPI e gera relatório"
-        required: false
-        default: false
-        type: boolean
       dry_run:
-        description: "Rodar sem enviar WhatsApp/e-mail/Telegram"
+        description: "Piloto isolado: consulta somente a fonte e gera relatório"
         required: false
         default: false
         type: boolean
@@ -37,7 +32,7 @@ jobs:
 
     env:
       PYTHONUNBUFFERED: "1"
-      CONTROLLED_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_probe || inputs.dry_run) }}
+      CONTROLLED_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       RENTCAST_API_KEY: ${{ secrets.RENTCAST_API_KEY }}
       # ZAPI é um alias temporário; ZILLAPI_KEY continua sendo o nome preferido.
       ZILLAPI_KEY: ${{ secrets.ZILLAPI_KEY || secrets.ZAPI }}
@@ -128,10 +123,8 @@ jobs:
       - name: Run scanner
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.source_probe }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m src.main --source-probe
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m src.main --dry-run
           else
             python -m src.main
           fi

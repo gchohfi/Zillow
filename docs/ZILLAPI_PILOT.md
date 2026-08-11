@@ -36,7 +36,8 @@ Antes do merge:
 1. revogar a chave que apareceu fora do cofre e criar outra;
 2. cadastrar a nova somente em `GitHub Actions Secrets` como `ZILLAPI_KEY`;
    o workflow também aceita `ZAPI` como alias temporário;
-3. executar uma única rodada manual com `source_probe: true`;
+3. executar uma única rodada manual com `dry_run: true`, que aciona o
+   `source_probe` isolado no GitHub Actions;
 4. validar humanamente endereço, preço, área, vacância, zoneamento, FEMA, comps,
    custos e margem;
 5. confirmar que o consumo real ficou em até 29 créditos.
