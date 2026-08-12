@@ -338,7 +338,7 @@
             <div class="metric-card">
                 <div class="metric-label">Maior Margem</div>
                 <div class="metric-value" id="best-margin">-</div>
-                <div class="metric-subtitle">Oportunidade top</div>
+                <div class="metric-subtitle">Oportunidade topo</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Últimas 24h</div>
@@ -353,8 +353,8 @@
         </div>
         
         <div class="tabs">
-            <button class="tab-button active" onclick="switchTab(event, 'map-tab')">📍 Mapa</button>
-            <button class="tab-button" onclick="switchTab(event, 'radar-tab')">📊 Radar</button>
+            <button class="tab-button active" onclick="switchTab(event, 'map-tab')">🗺️ Mapa</button>
+            <button class="tab-button" onclick="switchTab(event, 'radar-tab')">📡 Radar</button>
             <button class="tab-button" onclick="switchTab(event, 'signals-tab')">📈 Sinais de Crescimento</button>
             <button class="tab-button" onclick="switchTab(event, 'comparison-tab')">⚖️ Comparação</button>
             <button class="tab-button" onclick="switchTab(event, 'table-tab')">📋 Tabela</button>
@@ -384,11 +384,11 @@
                 <div class="filter-controls">
                     <div class="filter-group">
                         <label>Ordenar por Margem</label>
-                        <button class="btn" onclick="sortRadarTable('margin', 'desc')">⬇️ Maior Primeira</button>
+                        <button class="btn" onclick="sortRadarTable('margin', 'desc')">⬇️ Maior Primeiro</button>
                     </div>
                     <div class="filter-group">
                         <label>Ordenar por Lucro</label>
-                        <button class="btn" onclick="sortRadarTable('profit', 'desc')">⬇️ Maior Primeira</button>
+                        <button class="btn" onclick="sortRadarTable('profit', 'desc')">⬇️ Maior Primeiro</button>
                     </div>
                     <div class="filter-group">
                         <label>Ordenar por Data</label>
@@ -477,7 +477,7 @@
         async function loadData() {
             const startTime = performance.now();
             try {
-                // Load opportunities.json and evaluations.json from data folder
+                // Load data.json
                 const response = await fetch('data.json');
                 if (!response.ok) throw new Error('Failed to load data');
                 
@@ -584,14 +584,14 @@
                     <div style="width: 350px;">
                         <h4>${item.address || item.id}</h4>
                         <table style="width: 100%; font-size: 0.9em;">
-                            <tr><td><strong>Status:</strong></td><td>${status}</td></tr>
-                            <tr><td><strong>Endereço:</strong></td><td>${item.address || 'N/D'}</td></tr>
-                            <tr><td><strong>ZIP:</strong></td><td>${item.zip_code || 'N/D'}</td></tr>
-                            <tr><td><strong>Preço:</strong></td><td>$${parseFloat(item.land_price || 0).toLocaleString()}</td></tr>
-                            <tr><td><strong>ARV:</strong></td><td>$${parseFloat(item.arv || 0).toLocaleString()}</td></tr>
-                            <tr><td><strong>Lucro:</strong></td><td>$${parseFloat(item.profit || 0).toLocaleString()}</td></tr>
-                            <tr><td><strong>Margem:</strong></td><td>${((parseFloat(item.margin || 0) * 100).toFixed(1))}%</td></tr>
-                            <tr><td><strong>Uso do Solo:</strong></td><td>${item.cadastral_use || 'N/D'}</td></tr>
+                        <tr><td><strong>Status:</strong></td><td>${status}</td></tr>
+                        <tr><td><strong>Endereço:</strong></td><td>${item.address || 'N/D'}</td></tr>
+                        <tr><td><strong>ZIP:</strong></td><td>${item.zip_code || 'N/D'}</td></tr>
+                        <tr><td><strong>Preço Terreno:</strong></td><td>$${parseFloat(item.land_price || 0).toLocaleString()}</td></tr>
+                        <tr><td><strong>ARV:</strong></td><td>$${parseFloat(item.arv || 0).toLocaleString()}</td></tr>
+                        <tr><td><strong>Lucro:</strong></td><td>$${parseFloat(item.profit || 0).toLocaleString()}</td></tr>
+                        <tr><td><strong>Margem:</strong></td><td>${((parseFloat(item.margin || 0) * 100).toFixed(1))}%</td></tr>
+                        <tr><td><strong>Uso Solo:</strong></td><td>${item.cadastral_use || 'N/D'}</td></tr>
                         </table>
                     </div>
                 `;
@@ -818,8 +818,8 @@
                             ZIP: ${d.zip_code || 'N/D'}
                         </li>
                     `).join('')}
+                    ${top5.length === 0 ? '<p style="color: #999;">Nenhuma oportunidade viável encontrada</p>' : ''}
                 </ol>
-                ${top5.length === 0 ? '<p style="color: #999;">Nenhuma oportunidade viável encontrada</p>' : ''}
             `;
             document.getElementById('top-opportunities').innerHTML = html;
         }
@@ -852,19 +852,19 @@
                             const status = getStatus(d);
                             const statusClass = status === 'Viável' ? 'status-viavel' : status === 'Radar' ? 'status-radar' : 'status-reprovada';
                             return `
-                            <tr>
-                                <td>${new Date(d.found_at || '').toLocaleDateString('pt-BR')}</td>
-                                <td><span class="status-badge ${statusClass}">${status}</span></td>
-                                <td>${d.address || 'N/D'}</td>
-                                <td>${d.zip_code || 'N/D'}</td>
-                                <td>${d.market_priority || 'N/D'}</td>
-                                <td class="money">$${(parseFloat(d.land_price || 0)).toLocaleString()}</td>
-                                <td class="money">$${(parseFloat(d.arv || 0)).toLocaleString()}</td>
-                                <td class="money">$${(parseFloat(d.profit || 0)).toLocaleString()}</td>
-                                <td class="percentage">${((parseFloat(d.margin || 0) * 100).toFixed(1))}%</td>
-                                <td>${d.cadastral_use || 'N/D'}</td>
-                            </tr>
-                        `;
+                                <tr>
+                                    <td>${new Date(d.found_at || '').toLocaleDateString('pt-BR')}</td>
+                                    <td><span class="status-badge ${statusClass}">${status}</span></td>
+                                    <td>${d.address || 'N/D'}</td>
+                                    <td>${d.zip_code || 'N/D'}</td>
+                                    <td>${d.market_priority || 'N/D'}</td>
+                                    <td class="money">$${(parseFloat(d.land_price || 0)).toLocaleString()}</td>
+                                    <td class="money">$${(parseFloat(d.arv || 0)).toLocaleString()}</td>
+                                    <td class="money">$${(parseFloat(d.profit || 0)).toLocaleString()}</td>
+                                    <td class="percentage">${((parseFloat(d.margin || 0) * 100).toFixed(1))}%</td>
+                                    <td>${d.cadastral_use || 'N/D'}</td>
+                                </tr>
+                            `;
                         }).join('')}
                     </tbody>
                 </table>
