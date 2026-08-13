@@ -1,17 +1,17 @@
 {
   "source": "ZillapiSource",
   "source_result": "healthy",
-  "source_captured_at": "2026-08-12T12:20:08+00:00",
+  "source_captured_at": "2026-08-13T12:20:49+00:00",
   "diagnostics": [],
   "stage": "completed",
   "listings_returned": 29,
   "source_metrics": {
     "credits_consumed": 29,
     "bboxes_scanned": 1,
-    "credit_balance_before": 981,
+    "credit_balance_before": 952,
     "credit_floor": 100,
     "max_items_allowed": 29,
-    "credit_balance_after": 952
+    "credit_balance_after": 923
   },
-  "status_updated_at": "2026-08-12T12:20:09+00:00"
+  "status_updated_at": "2026-08-13T12:20:49+00:00"
 }
