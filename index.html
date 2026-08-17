@@ -1,1 +1,118 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Orlando Land Detector Dashboard</title><script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script><script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}.container{max-width:1600px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:30px;text-align:center}header h1{font-size:2.5em;margin-bottom:10px}header p{font-size:1.1em;opacity:.9}.summary-section{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;padding:30px;background:#f8f9fa;border-bottom:1px solid #e9ecef}.summary-card{background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);text-align:center}.summary-card h3{font-size:.9em;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}.summary-card .value{font-size:2.5em;font-weight:700;color:#667eea}.summary-card.viable .value{color:#28a745}.summary-card.new .value{color:#ffc107}.summary-card.margin .value{color:#dc3545}.content{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:30px}@media (max-width:1200px){.content{grid-template-columns:1fr}}.section{background:#f8f9fa;border-radius:8px;padding:20px;border:1px solid #e9ecef}.section h2{margin-bottom:20px;color:#333;font-size:1.3em}#map{height:400px;border-radius:6px}.radar-table{width:100%;border-collapse:collapse;font-size:.95em}.radar-table thead{background:#667eea;color:#fff}.radar-table th{padding:12px;text-align:left;cursor:pointer;user-select:none;white-space:nowrap}.radar-table th:hover{background:#764ba2}.radar-table td{padding:12px;border-bottom:1px solid #e9ecef}.radar-table tbody tr:hover{background:#f0f0ff}.status-badge{display:inline-block;padding:4px 12px;border-radius:20px;font-weight:700;font-size:.85em}.status-viable{background:#d4edda;color:#155724}.status-radar{background:#fff3cd;color:#856404}.status-reprovada{background:#f8d7da;color:#721c24}.number{text-align:right;font-family:'Courier New',monospace;font-weight:700}.date{font-size:.9em;color:#666}#growthChart{max-height:300px}.comparison-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.comparison-item{background:#fff;padding:15px;border-radius:6px;border-left:4px solid #667eea}.comparison-item h4{margin-bottom:8px;color:#333}.comparison-item p{color:#666;font-size:.9em;line-height:1.6}footer{background:#f8f9fa;padding:20px 30px;text-align:center;color:#666;border-top:1px solid #e9ecef}.loading{text-align:center;padding:40px;color:#666}</style></head><body><div class="container"><header><h1>Orlando Land Detector</h1><p>Real Estate Investment Opportunity Analysis Dashboard</p></header><div class="summary-section"><div class="summary-card"><h3>Total Opportunities</h3><div class="value" id="totalCount">-</div></div><div class="summary-card viable"><h3>Viable Count</h3><div class="value" id="viableCount">-</div></div><div class="summary-card new"><h3>New (24h)</h3><div class="value" id="newCount">-</div></div><div class="summary-card margin"><h3>Best Margin</h3><div class="value" id="bestMargin">-</div></div><div class="summary-card"><h3>Last Update</h3><div class="value" id="lastUpdate" style="font-size:1.2em;color:#666">-</div></div></div><div class="content"><div class="section"><h2>Interactive Map</h2><div id="map"></div></div><div class="section"><h2>Region Growth Signals</h2><canvas id="growthChart"></canvas></div><div class="section" style="grid-column:1/-1"><h2>Radar Opportunities (Sortable)</h2><div style="overflow-x:auto"><table class="radar-table" id="radarTable"><thead><tr><th onclick="sortTable(0)">Status</th><th onclick="sortTable(1)">Address</th><th onclick="sortTable(2)">Margin (%)</th><th onclick="sortTable(3)">Est. Profit</th><th onclick="sortTable(4)">Confidence</th><th onclick="sortTable(5)">Captured</th></tr></thead><tbody id="tableBody"><tr class="loading"><td colspan="6">Loading opportunities...</td></tr></tbody></table></div></div><div class="section" style="grid-column:1/-1"><h2>Comparison View</h2><div class="comparison-grid" id="comparisonGrid"><div class="comparison-item"><h4>Viable Properties</h4><p id="viableStats">Loading...</p></div><div class="comparison-item"><h4>Radar Properties</h4><p id="radarStats">Loading...</p></div><div class="comparison-item"><h4>Top Margin Opportunity</h4><p id="topMarginStats">Loading...</p></div><div class="comparison-item"><h4>Market Trends</h4><p id="trendStats">Loading...</p></div></div></div></div><footer><p>Orlando Land Detector Dashboard | Last deployed: <span id="deployTime"></span> | Data accuracy and market conditions may vary</p></footer></div><script>const opportunities=[{status:'Viable',address:'123 Orange Ave, Orlando, FL 32801',margin:28.5,profit:85000,confidence:95,captured:'2026-08-15 10:30',lat:28.5421,lng:-81.3723},{status:'Viable',address:'456 Pine St, Orlando, FL 32806',margin:25.2,profit:72000,confidence:92,captured:'2026-08-15 09:15',lat:28.5435,lng:-81.381},{status:'Radar',address:'789 Oak Drive, Orlando, FL 32808',margin:18.7,profit:54000,confidence:78,captured:'2026-08-14 16:45',lat:28.545,lng:-81.365},{status:'Viable',address:'321 Maple Lane, Orlando, FL 32802',margin:31.2,profit:95000,confidence:98,captured:'2026-08-15 11:00',lat:28.538,lng:-81.378},{status:'Radar',address:'654 Cedar Rd, Orlando, FL 32809',margin:22.1,profit:64000,confidence:85,captured:'2026-08-14 14:20',lat:28.546,lng:-81.39},{status:'Reprovada',address:'987 Elm St, Orlando, FL 32804',margin:12.3,profit:35000,confidence:65,captured:'2026-08-13 10:30',lat:28.541,lng:-81.36}];let map,sortConfig={key:null,direction:'asc'};function initMap(){map=L.map('map').setView([28.5421,-81.3723],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OpenStreetMap contributors',maxZoom:19}).addTo(map);opportunities.forEach(opp=>{const colors={Viable:'#28a745',Radar:'#ffc107',Reprovada:'#dc3545'};const icon=L.circleMarker([opp.lat,opp.lng],{radius:8,fillColor:colors[opp.status],color:'#fff',weight:2,opacity:1,fillOpacity:.8});icon.bindPopup(`<strong>${opp.address}</strong><br>Margin: ${opp.margin}%<br>Status: ${opp.status}`);icon.addTo(map);})}function initGrowthChart(){const ctx=document.getElementById('growthChart').getContext('2d');new Chart(ctx,{type:'line',data:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],datasets:[{label:'Viable',data:[12,14,13,16,18,19,19],borderColor:'#28a745',backgroundColor:'rgba(40, 167, 69, 0.1)',tension:.4,fill:!0},{label:'Radar',data:[5,6,7,8,9,10,11],borderColor:'#ffc107',backgroundColor:'rgba(255, 193, 7, 0.1)',tension:.4,fill:!0},{label:'Reprovada',data:[3,4,5,5,6,7,8],borderColor:'#dc3545',backgroundColor:'rgba(220, 53, 69, 0.1)',tension:.4,fill:!0}]},options:{responsive:!0,maintainAspectRatio:!0,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:!0}}}})}function updateSummary(){const total=opportunities.length,viable=opportunities.filter(o=>'Viable'===o.status).length,newIn24h=opportunities.filter(o=>{const captureTime=new Date(o.captured),now=new Date;return now-captureTime<864e5}).length,bestMargin=Math.max(...opportunities.map(o=>o.margin)).toFixed(1),lastDate=new Date().toLocaleString();document.getElementById('totalCount').textContent=total;document.getElementById('viableCount').textContent=viable;document.getElementById('newCount').textContent=newIn24h;document.getElementById('bestMargin').textContent=`${bestMargin}%`;document.getElementById('lastUpdate').textContent=lastDate;document.getElementById('deployTime').textContent=lastDate}function populateTable(){const tbody=document.getElementById('tableBody');tbody.innerHTML='';opportunities.forEach(opp=>{const row=document.createElement('tr'),statusClass=`status-${opp.status.toLowerCase()}`;row.innerHTML=`<td><span class="status-badge ${statusClass}">${opp.status}</span></td><td>${opp.address}</td><td class="number">${opp.margin}%</td><td class="number">$${opp.profit.toLocaleString()}</td><td class="number">${opp.confidence}%</td><td class="date">${opp.captured}</td>`;tbody.appendChild(row)})}function sortTable(columnIndex){const sortKeys=['status','address','margin','profit','confidence','captured'],key=sortKeys[columnIndex];if(sortConfig.key===key)sortConfig.direction='asc'===sortConfig.direction?'desc':'asc';else{sortConfig.key=key;sortConfig.direction='asc'}const sorted=opportunities.slice().sort((a,b)=>{const aVal=a[key],bVal=b[key];if('number'==typeof aVal)return'asc'===sortConfig.direction?aVal-bVal:bVal-aVal;return'asc'===sortConfig.direction?String(aVal).localeCompare(String(bVal)):String(bVal).localeCompare(String(aVal))});opportunities.length=0;opportunities.push(...sorted);populateTable()}function updateComparison(){const viable=opportunities.filter(o=>'Viable'===o.status),radar=opportunities.filter(o=>'Radar'===o.status),topMargin=opportunities.sort((a,b)=>b.margin-a.margin)[0];document.getElementById('viableStats').innerHTML=`<strong>Count:</strong> ${viable.length}<br><strong>Avg Margin:</strong> ${(viable.reduce((s,o)=>s+o.margin,0)/viable.length).toFixed(1)}%<br><strong>Total Profit:</strong> $${viable.reduce((s,o)=>s+o.profit,0).toLocaleString()}`;document.getElementById('radarStats').innerHTML=`<strong>Count:</strong> ${radar.length}<br><strong>Avg Margin:</strong> ${radar.length?(radar.reduce((s,o)=>s+o.margin,0)/radar.length).toFixed(1):0}%<br><strong>Total Profit:</strong> $${radar.reduce((s,o)=>s+o.profit,0).toLocaleString()}`;document.getElementById('topMarginStats').innerHTML=`<strong>${topMargin.address}</strong><br><strong>Margin:</strong> ${topMargin.margin}%<br><strong>Profit:</strong> $${topMargin.profit.toLocaleString()}`;document.getElementById('trendStats').innerHTML='<strong>Market Activity:</strong> High<br><strong>Best Performing:</strong> Viable<br><strong>Recent Captures:</strong> 5 last 24h'}function init(){updateSummary();populateTable();initMap();initGrowthChart();updateComparison()}document.addEventListener('DOMContentLoaded',init);</script></body></html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orlando Land Detector - Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #333; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); overflow: hidden; }
+        header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; padding: 30px; background: #f8f9fa; }
+        .summary-card { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; text-align: center; }
+        .summary-card.viable { border-left-color: #10b981; }
+        .summary-card.radar { border-left-color: #f59e0b; }
+        .summary-card h3 { font-size: 0.9em; color: #666; }
+        .summary-card .value { font-size: 2.5em; font-weight: bold; color: #667eea; }
+        .summary-card.viable .value { color: #10b981; }
+        .summary-card.radar .value { color: #f59e0b; }
+        .main-content { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; padding: 30px; }
+        .section { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); overflow: hidden; }
+        .section-header { background: #f8f9fa; padding: 20px; border-bottom: 2px solid #e0e0e0; }
+        .section-header h2 { font-size: 1.3em; color: #333; }
+        .section-content { padding: 20px; }
+        #map { width: 100%; height: 500px; }
+        table { width: 100%; border-collapse: collapse; }
+        table th { padding: 15px; text-align: left; font-weight: 600; border-bottom: 2px solid #e0e0e0; cursor: pointer; }
+        table td { padding: 15px; border-bottom: 1px solid #f0f0f0; }
+        .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600; }
+        .status-viable { background: #d1fae5; color: #065f46; }
+        .status-radar { background: #fef3c7; color: #78350f; }
+        .status-rejected { background: #fee2e2; color: #7f1d1d; }
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-btn { padding: 8px 16px; border: 2px solid #e0e0e0; background: white; border-radius: 6px; cursor: pointer; transition: all 0.3s; }
+        .filter-btn.active { border-color: #667eea; background: #667eea; color: white; }
+        .full-width { grid-column: 1 / -1; }
+        @media (max-width: 1024px) { .main-content { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-map-marked-alt"></i> Orlando Land Detector</h1>
+            <p>Real-time dashboard for property opportunities in the Orlando market</p>
+        </header>
+
+        <div class="summary">
+            <div class="summary-card">
+                <h3>Total Opportunities</h3>
+                <div class="value" id="totalCount">-</div>
+            </div>
+            <div class="summary-card viable">
+                <h3>Viable Properties</h3>
+                <div class="value" id="viableCount">-</div>
+            </div>
+            <div class="summary-card radar">
+                <h3>In Radar</h3>
+                <div class="value" id="radarCount">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>New in 24h</h3>
+                <div class="value" id="newCount">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Best Margin</h3>
+                <div class="value" id="bestMargin">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Last Capture</h3>
+                <div class="value" id="lastCapture">-</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-map"></i> Property Locations</h2>
+                </div>
+                <div id="map"></div>
+            </div>
+
+            <div class="section full-width">
+                <div class="section-header">
+                    <h2><i class="fas fa-table"></i> Opportunities</h2>
+                    <div class="filters">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="viable">Viável</button>
+                        <button class="filter-btn" data-filter="radar">Radar</button>
+                        <button class="filter-btn" data-filter="rejected">Reprovada</button>
+                    </div>
+                </div>
+                <div class="section-content">
+                    <table id="opportunitiesTable">
+                        <thead>
+                            <tr>
+                                <th data-column="date">Date</th>
+                                <th data-column="address">Address</th>
+                                <th data-column="margin">Margin %</th>
+                                <th data-column="profit">Profit</th>
+                                <th data-column="status">Status</th>
+                                <th data-column="arv">ARV</th>
+                                <th data-column="price">Price</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>
