@@ -1,19 +1,19 @@
 {
   "source": "ZillapiSource",
   "source_result": "healthy",
-  "source_captured_at": "2026-09-09T12:18:29+00:00",
+  "source_captured_at": "2026-09-10T12:18:23+00:00",
   "diagnostics": [
     "run_summary:required_channel_failed"
   ],
   "stage": "failed",
-  "listings_returned": 29,
+  "listings_returned": 11,
   "source_metrics": {
-    "credits_consumed": 29,
+    "credits_consumed": 11,
     "bboxes_scanned": 1,
-    "credit_balance_before": 140,
+    "credit_balance_before": 111,
     "credit_floor": 100,
-    "max_items_allowed": 29,
-    "credit_balance_after": 111
+    "max_items_allowed": 11,
+    "credit_balance_after": 100
   },
-  "status_updated_at": "2026-09-09T12:18:30+00:00"
+  "status_updated_at": "2026-09-10T12:18:23+00:00"
 }
