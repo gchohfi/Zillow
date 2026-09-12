@@ -1,19 +1,19 @@
 {
   "source": "ZillapiSource",
-  "source_result": "degraded",
-  "source_captured_at": "2026-09-11T12:18:49+00:00",
+  "source_result": "healthy",
+  "source_captured_at": "2026-09-12T12:16:09+00:00",
   "diagnostics": [
-    "saldo baixo: 100 créditos; scan pausado no piso 100",
     "run_summary:required_channel_failed"
   ],
   "stage": "failed",
-  "listings_returned": 0,
+  "listings_returned": 29,
   "source_metrics": {
-    "credits_consumed": 0,
-    "bboxes_scanned": 0,
-    "credit_balance_before": 100,
+    "credits_consumed": 29,
+    "bboxes_scanned": 1,
+    "credit_balance_before": 1100,
     "credit_floor": 100,
-    "max_items_allowed": 0
+    "max_items_allowed": 29,
+    "credit_balance_after": 1071
   },
-  "status_updated_at": "2026-09-11T12:18:49+00:00"
+  "status_updated_at": "2026-09-12T12:16:10+00:00"
 }
